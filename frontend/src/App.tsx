@@ -14,6 +14,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/auth/google/callback" element={<GoogleOAuthCallback />} />
+          <Route path="/auth/microsoft/callback" element={<GoogleOAuthCallback />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/applications" element={<Applications />} />
           <Route path="/calendar" element={<CalendarPage />} />

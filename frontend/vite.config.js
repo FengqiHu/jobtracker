@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
     const rootDir = path.resolve(__dirname, "..");
     const env = loadEnv(mode, rootDir, "");
-    const backendPort = env.PORT || "3101";
+    const backendPort = env.PORT || "3000";
     return {
         envDir: rootDir,
         plugins: [react()],
@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => {
             }
         },
         server: {
-            port: 3000,
+            port: 5173,
             strictPort: true,
             proxy: {
                 "/api": `http://localhost:${backendPort}`

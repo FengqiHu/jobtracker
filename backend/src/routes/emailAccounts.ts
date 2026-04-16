@@ -11,39 +11,27 @@ import {
 import { syncAccount } from "../services/emailSync"
 import { exchangeCodeForTokens, getGmailAuthUrl } from "../services/gmailClient"
 import { testImapConnection } from "../services/imapClient"
+import {
+  exchangeOutlookCodeForTokens,
+  getOutlookAuthUrl
+} from "../services/microsoftClient"
 
 export const emailAccountRoutes = Router()
 
 function frontendUrl(path: string) {
-  const base = process.env.FRONTEND_URL || "http://localhost:3000"
+  const base = process.env.FRONTEND_URL || "http://localhost:5173"
   return `${base}${path}`
 }
 
-async function connectGmailAccount(code: string) {
-  const tokens = await exchangeCodeForTokens(code)
-  const account = await prisma.emailAccount.create({
-    data: {
-      provider: "gmail",
-      label: tokens.email,
-      email: tokens.email,
-      accessToken: encrypt(tokens.accessToken),
-      refreshToken: tokens.refreshToken ? encrypt(tokens.refreshToken) : undefined,
-      tokenExpiresAt: tokens.expiresAt
-    }
-  })
-
-  const job = await prisma.syncJob.create({
-    data: {
-      emailAccountId: account.id,
-      type: "initial",
-      status: "PENDING"
-    }
-  })
-
-  syncAccount(account.id, "initial", job.id).catch((error) => {
-    logger.error({ error, accountId: account.id }, "Initial Gmail sync failed")
-  })
-
+function serializeAccountSummary(account: {
+  id: string
+  label: string
+  email: string
+  provider: string
+  lastSyncedAt: Date | null
+  syncEnabled: boolean
+  calendarConnected: boolean
+}) {
   return {
     id: account.id,
     label: account.label,
@@ -53,6 +41,107 @@ async function connectGmailAccount(code: string) {
     syncEnabled: account.syncEnabled,
     calendarConnected: account.calendarConnected
   }
+}
+
+async function queueInitialSync(accountId: string) {
+  const job = await prisma.syncJob.create({
+    data: {
+      emailAccountId: accountId,
+      type: "initial",
+      status: "PENDING"
+    }
+  })
+
+  syncAccount(accountId, "initial", job.id).catch((error) => {
+    logger.error({ error, accountId }, "Initial mailbox sync failed")
+  })
+}
+
+async function upsertOAuthAccount(data: {
+  provider: string
+  label: string
+  email: string
+  accessToken: string
+  refreshToken?: string | null
+  expiresAt?: Date | null
+}) {
+  const existing = await prisma.emailAccount.findFirst({
+    where: {
+      provider: data.provider,
+      email: data.email
+    }
+  })
+
+  if (existing) {
+    return prisma.emailAccount.update({
+      where: { id: existing.id },
+      data: {
+        label: data.label,
+        accessToken: encrypt(data.accessToken),
+        refreshToken: data.refreshToken ? encrypt(data.refreshToken) : existing.refreshToken,
+        tokenExpiresAt: data.expiresAt ?? existing.tokenExpiresAt,
+        syncEnabled: true
+      }
+    })
+  }
+
+  return prisma.emailAccount.create({
+    data: {
+      provider: data.provider,
+      label: data.label,
+      email: data.email,
+      accessToken: encrypt(data.accessToken),
+      refreshToken: data.refreshToken ? encrypt(data.refreshToken) : undefined,
+      tokenExpiresAt: data.expiresAt ?? undefined
+    }
+  })
+}
+
+async function connectGmailAccount(code: string) {
+  const tokens = await exchangeCodeForTokens(code)
+  const account = await upsertOAuthAccount({
+    provider: "gmail",
+    label: tokens.email,
+    email: tokens.email,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresAt: tokens.expiresAt
+  })
+
+  await queueInitialSync(account.id)
+
+  return serializeAccountSummary(account)
+}
+
+async function connectOutlookAccount(code: string) {
+  const tokens = await exchangeOutlookCodeForTokens(code)
+  const validation = await testImapConnection({
+    host: "outlook.office365.com",
+    port: 993,
+    user: tokens.email,
+    accessToken: tokens.accessToken,
+    tls: true
+  })
+
+  if (!validation.ok) {
+    throw new Error(
+      validation.message ??
+        "Outlook OAuth succeeded, but the mailbox could not be opened over IMAP."
+    )
+  }
+
+  const account = await upsertOAuthAccount({
+    provider: "outlook",
+    label: tokens.label,
+    email: tokens.email,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresAt: tokens.expiresAt
+  })
+
+  await queueInitialSync(account.id)
+
+  return serializeAccountSummary(account)
 }
 
 emailAccountRoutes.get("/email-accounts", async (_req, res) => {
@@ -99,6 +188,16 @@ emailAccountRoutes.get("/email-accounts/gmail/connect", (_req, res) => {
   res.json({ authUrl: getGmailAuthUrl() })
 })
 
+emailAccountRoutes.get("/email-accounts/outlook/connect", (_req, res) => {
+  try {
+    res.json({ authUrl: getOutlookAuthUrl() })
+  } catch (error) {
+    res.status(400).json({
+      message: error instanceof Error ? error.message : "Unable to start Outlook connection"
+    })
+  }
+})
+
 emailAccountRoutes.post("/email-accounts/gmail/exchange", async (req, res) => {
   const code = String(req.body.code ?? "")
   if (!code) {
@@ -109,10 +208,26 @@ emailAccountRoutes.post("/email-accounts/gmail/exchange", async (req, res) => {
   return res.status(201).json(account)
 })
 
+emailAccountRoutes.post("/email-accounts/outlook/exchange", async (req, res) => {
+  const code = String(req.body.code ?? "")
+  if (!code) {
+    return res.status(400).json({ message: "Missing Microsoft OAuth code" })
+  }
+
+  try {
+    const account = await connectOutlookAccount(code)
+    return res.status(201).json(account)
+  } catch (error) {
+    return res.status(400).json({
+      message: error instanceof Error ? error.message : "Unable to connect Outlook account"
+    })
+  }
+})
+
 emailAccountRoutes.get("/email-accounts/gmail/callback", async (req, res) => {
   const code = String(req.query.code ?? "")
   if (!code) {
-    return res.redirect(frontendUrl("/settings?connected=error"))
+    return res.redirect(frontendUrl("/settings?connected=gmail-error"))
   }
 
   await connectGmailAccount(code)
@@ -128,9 +243,11 @@ emailAccountRoutes.post("/email-accounts/imap", async (req, res) => {
     tls: req.body.tls ?? true
   }
 
-  const valid = await testImapConnection(config)
-  if (!valid) {
-    return res.status(400).json({ message: "Unable to connect with the provided IMAP credentials" })
+  const validation = await testImapConnection(config)
+  if (!validation.ok) {
+    return res.status(400).json({
+      message: validation.message ?? "Unable to connect with the provided IMAP credentials"
+    })
   }
 
   const account = await prisma.emailAccount.create({
@@ -146,27 +263,9 @@ emailAccountRoutes.post("/email-accounts/imap", async (req, res) => {
     }
   })
 
-  const job = await prisma.syncJob.create({
-    data: {
-      emailAccountId: account.id,
-      type: "initial",
-      status: "PENDING"
-    }
-  })
+  await queueInitialSync(account.id)
 
-  syncAccount(account.id, "initial", job.id).catch((error) => {
-    logger.error({ error, accountId: account.id }, "Initial IMAP sync failed")
-  })
-
-  return res.status(201).json({
-    id: account.id,
-    label: account.label,
-    email: account.email,
-    provider: account.provider,
-    lastSyncedAt: account.lastSyncedAt,
-    syncEnabled: account.syncEnabled,
-    calendarConnected: account.calendarConnected
-  })
+  return res.status(201).json(serializeAccountSummary(account))
 })
 
 emailAccountRoutes.patch("/email-accounts/:id", async (req, res) => {
@@ -178,15 +277,7 @@ emailAccountRoutes.patch("/email-accounts/:id", async (req, res) => {
     }
   })
 
-  res.json({
-    id: updated.id,
-    label: updated.label,
-    email: updated.email,
-    provider: updated.provider,
-    lastSyncedAt: updated.lastSyncedAt,
-    syncEnabled: updated.syncEnabled,
-    calendarConnected: updated.calendarConnected
-  })
+  res.json(serializeAccountSummary(updated))
 })
 
 emailAccountRoutes.delete("/email-accounts/:id", async (req, res) => {

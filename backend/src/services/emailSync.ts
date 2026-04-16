@@ -5,6 +5,7 @@ import { logger } from "../lib/logger"
 import * as aiParser from "./aiParser"
 import * as gmailClient from "./gmailClient"
 import * as imapClient from "./imapClient"
+import * as microsoftClient from "./microsoftClient"
 import { decrypt } from "../lib/encryption"
 
 const statusOrder: Record<ApplicationStatus, number> = {
@@ -82,23 +83,6 @@ export async function syncAccount(
 
     let totalEmails = 0
     let parsedEmails = 0
-
-    if (account.provider === "demo") {
-      await prisma.emailAccount.update({
-        where: { id: account.id },
-        data: { lastSyncedAt: new Date() }
-      })
-      await prisma.syncJob.update({
-        where: { id: jobId! },
-        data: {
-          status: SyncStatus.COMPLETED,
-          completedAt: new Date(),
-          totalEmails,
-          parsedEmails
-        }
-      })
-      return
-    }
 
     const processParsedEmail = async (
       messageId: string,
@@ -219,6 +203,19 @@ export async function syncAccount(
         tls: account.imapTls
       }
 
+      const messages = await imapClient.listRecentMessages(config, sinceDate)
+      for (const message of messages) {
+        await processParsedEmail(
+          String(message.uid),
+          message.subject,
+          message.from,
+          () => imapClient.getMessageBody(config, message.uid)
+        )
+      }
+    }
+
+    if (account.provider === "outlook") {
+      const config = await microsoftClient.getOutlookImapConfig(account)
       const messages = await imapClient.listRecentMessages(config, sinceDate)
       for (const message of messages) {
         await processParsedEmail(

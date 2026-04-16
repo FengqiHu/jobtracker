@@ -1,4 +1,5 @@
 import { useState } from "react"
+import axios from "axios"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CalendarPlus, Mail, RefreshCw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -16,7 +17,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
-import { connectImap, deleteEmailAccount, getCalendarConnectUrl, getGmailConnectUrl, patchEmailAccount, triggerSync } from "@/lib/api"
+import {
+  connectImap,
+  deleteEmailAccount,
+  getCalendarConnectUrl,
+  getGmailConnectUrl,
+  getOutlookConnectUrl,
+  patchEmailAccount,
+  triggerSync
+} from "@/lib/api"
 import type { EmailAccountSummary } from "@/lib/types"
 import { formatRelativeTime } from "@/lib/utils"
 
@@ -29,6 +38,17 @@ function accountStatusColor(account: EmailAccountSummary) {
     return "bg-red-500"
   }
   return "bg-emerald-500"
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  if (axios.isAxiosError(error)) {
+    const message = error.response?.data?.message
+    if (typeof message === "string" && message) {
+      return message
+    }
+  }
+
+  return fallback
 }
 
 export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }) {
@@ -44,6 +64,8 @@ export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }
     tls: true
   })
   const [formError, setFormError] = useState("")
+  const isMicrosoftHost = /outlook|office365/i.test(form.host)
+  const isGmailHost = /gmail|google/i.test(form.host)
 
   const invalidateAll = async () => {
     await Promise.all([
@@ -59,7 +81,17 @@ export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }
     onSuccess: ({ authUrl }) => {
       window.location.href = authUrl
     },
-    onError: () => toast.error("Unable to start Gmail connection")
+    onError: (error: unknown) =>
+      toast.error(getApiErrorMessage(error, "Unable to start Gmail connection"))
+  })
+
+  const outlookMutation = useMutation({
+    mutationFn: getOutlookConnectUrl,
+    onSuccess: ({ authUrl }) => {
+      window.location.href = authUrl
+    },
+    onError: (error: unknown) =>
+      toast.error(getApiErrorMessage(error, "Unable to start Outlook connection"))
   })
 
   const imapMutation = useMutation({
@@ -83,12 +115,7 @@ export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }
       })
     },
     onError: (error: unknown) => {
-      const message =
-        error && typeof error === "object" && "response" in error
-          ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (error as any).response?.data?.message
-          : "Unable to connect to the IMAP server"
-      setFormError(message)
+      setFormError(getApiErrorMessage(error, "Unable to connect to the IMAP server"))
     }
   })
 
@@ -130,6 +157,9 @@ export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }
     <>
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={() => gmailMutation.mutate()}>Connect Gmail</Button>
+        <Button variant="secondary" onClick={() => outlookMutation.mutate()}>
+          Connect Outlook
+        </Button>
         <Button variant="secondary" onClick={() => setImapOpen(true)}>
           Connect IMAP
         </Button>
@@ -214,8 +244,8 @@ export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }
         {!accounts.length ? (
           <Card>
             <CardContent className="py-8 text-center text-sm text-[#898989]">
-              No inboxes connected yet. Start with Gmail or IMAP and the tracker will seed
-              sync history here.
+              No inboxes connected yet. Start with Gmail, Outlook, or IMAP and your real
+              connections will appear here.
             </CardContent>
           </Card>
         ) : null}
@@ -271,6 +301,30 @@ export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }
                 }
               />
             </div>
+            {isGmailHost ? (
+              <div className="rounded-[14px] border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
+                <p className="font-medium">Gmail works better with Google OAuth.</p>
+                <p className="mt-1 text-blue-900/80">
+                  Use the button below instead of entering IMAP credentials unless you already
+                  created a Google App Password.
+                </p>
+                <Button
+                  className="mt-3"
+                  type="button"
+                  onClick={() => gmailMutation.mutate()}
+                  disabled={gmailMutation.isPending}
+                >
+                  {gmailMutation.isPending ? "Opening Google OAuth..." : "Use Google OAuth Instead"}
+                </Button>
+              </div>
+            ) : null}
+            {isMicrosoftHost ? (
+              <div className="rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Outlook and Microsoft 365 mailboxes often block normal password-based IMAP
+                sign-in. If this mailbox rejects the login, use the Connect Outlook button
+                instead of a password-based IMAP connection.
+              </div>
+            ) : null}
             <div className="flex items-center justify-between rounded-[14px] bg-[#f8f8f8] px-4 py-3 shadow-card">
               <div>
                 <p className="text-sm font-medium text-[#242424]">Use TLS</p>

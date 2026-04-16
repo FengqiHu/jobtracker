@@ -31,7 +31,7 @@ async function main() {
   const accounts = await requestApp(app, "GET", "/api/email-accounts")
   const upcoming = await requestApp(app, "GET", "/api/interviews/upcoming")
   const gmailConnect = await requestApp(app, "GET", "/api/email-accounts/gmail/connect")
-  const calendarConnect = await requestApp(app, "GET", "/api/calendar/connect/demo-account")
+  const calendarConnect = await requestApp(app, "GET", "/api/calendar/connect/placeholder-account")
   const syncStatus = await requestApp(app, "GET", "/api/sync/status")
 
   if (
@@ -55,12 +55,12 @@ async function main() {
     throw new Error("Unexpected settings payload")
   }
 
-  if (!Array.isArray(applications.body.data) || applications.body.data.length < 1) {
-    throw new Error("Applications endpoint did not return seeded records")
+  if (!Array.isArray(applications.body.data)) {
+    throw new Error("Applications endpoint did not return an array payload")
   }
 
-  if (!Array.isArray(accounts.body) || accounts.body.length < 1) {
-    throw new Error("Email accounts endpoint did not return seeded records")
+  if (!Array.isArray(accounts.body)) {
+    throw new Error("Email accounts endpoint did not return an array payload")
   }
 
   if (!Array.isArray(upcoming.body)) {

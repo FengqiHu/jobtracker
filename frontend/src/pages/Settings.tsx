@@ -43,11 +43,16 @@ export default function SettingsPage() {
   useEffect(() => {
     const connected = searchParams.get("connected")
     const calendar = searchParams.get("calendar")
+    const message = searchParams.get("message")
 
     if (connected === "gmail") {
       toast.success("Gmail account connected")
-    } else if (connected === "error") {
-      toast.error("Google account connection failed")
+    } else if (connected === "outlook") {
+      toast.success("Outlook account connected")
+    } else if (connected === "gmail-error") {
+      toast.error(message || "Google account connection failed")
+    } else if (connected === "outlook-error") {
+      toast.error(message || "Outlook account connection failed")
     }
     if (calendar === "connected") {
       toast.success("Google Calendar connected")

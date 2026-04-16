@@ -6,7 +6,8 @@ export type ImapConfig = {
   host: string
   port: number
   user: string
-  password: string
+  password?: string
+  accessToken?: string
   tls: boolean
 }
 
@@ -15,6 +16,77 @@ export type ImapMessageMeta = {
   subject: string
   date: string
   from: string
+}
+
+export type ImapConnectionResult = {
+  ok: boolean
+  message?: string
+}
+
+function describeImapError(error: unknown, config: ImapConfig): string {
+  const details =
+    error && typeof error === "object"
+      ? {
+          message: "message" in error ? String(error.message ?? "") : "",
+          response: "response" in error ? String(error.response ?? "") : "",
+          responseText: "responseText" in error ? String(error.responseText ?? "") : "",
+          serverResponseCode:
+            "serverResponseCode" in error ? String(error.serverResponseCode ?? "") : "",
+          authenticationFailed:
+            "authenticationFailed" in error ? Boolean(error.authenticationFailed) : false
+        }
+      : {
+          message: "",
+          response: "",
+          responseText: "",
+          serverResponseCode: "",
+          authenticationFailed: false
+        }
+
+  const combined = [
+    details.message,
+    details.response,
+    details.responseText,
+    details.serverResponseCode
+  ]
+    .join(" ")
+    .toLowerCase()
+
+  if (combined.includes("basicauthblocked")) {
+    return "Microsoft blocked password-based IMAP sign-in for this Outlook account. This mailbox will need Microsoft OAuth support instead of a normal IMAP password."
+  }
+
+  if (config.accessToken && /outlook|office365/i.test(config.host)) {
+    return "Outlook rejected the Microsoft OAuth token. Make sure your app registration includes Outlook IMAP permission and the account granted consent."
+  }
+
+  if (
+    /gmail/i.test(config.host) &&
+    combined.includes("application-specific password required")
+  ) {
+    return "Gmail requires an App Password for IMAP. Turn on Google 2-Step Verification, create an App Password, and use that in the IMAP form instead of your normal Gmail password."
+  }
+
+  if (
+    /gmail/i.test(config.host) &&
+    (details.authenticationFailed || combined.includes("authenticate failed"))
+  ) {
+    return "Gmail rejected the IMAP login. Use the Connect Gmail button for Google OAuth, or use an App Password instead of your normal Gmail password in the IMAP form."
+  }
+
+  if (details.authenticationFailed || combined.includes("authenticate failed")) {
+    return "The IMAP server rejected the username or password. Double-check the credentials and make sure this mailbox allows IMAP access."
+  }
+
+  if (combined.includes("timeout") || combined.includes("econnrefused")) {
+    return "Unable to reach the IMAP server. Double-check the host, port, and TLS setting."
+  }
+
+  if (/outlook|office365/i.test(config.host)) {
+    return "Outlook accepted the network connection but rejected the password-based IMAP login. This mailbox likely requires Microsoft OAuth instead of a normal IMAP password."
+  }
+
+  return "Unable to connect with the provided IMAP credentials."
 }
 
 async function withClient<T>(
@@ -27,7 +99,8 @@ async function withClient<T>(
     secure: config.tls,
     auth: {
       user: config.user,
-      pass: config.password
+      pass: config.password,
+      accessToken: config.accessToken
     }
   })
 
@@ -40,12 +113,15 @@ async function withClient<T>(
   }
 }
 
-export async function testImapConnection(config: ImapConfig): Promise<boolean> {
+export async function testImapConnection(config: ImapConfig): Promise<ImapConnectionResult> {
   try {
     await withClient(config, async () => true)
-    return true
-  } catch {
-    return false
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      message: describeImapError(error, config)
+    }
   }
 }
 

@@ -1,12 +1,34 @@
-import { useEffect, useState } from "react"
-import { useNavigate, useSearchParams } from "react-router-dom"
+import { useEffect, useMemo, useState } from "react"
+import axios from "axios"
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
 
-import { exchangeCalendarCode, exchangeGmailCode } from "@/lib/api"
+import {
+  exchangeCalendarCode,
+  exchangeGmailCode,
+  exchangeOutlookCode
+} from "@/lib/api"
+
+function getApiErrorMessage(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    const message = error.response?.data?.message
+    if (typeof message === "string" && message) {
+      return message
+    }
+  }
+
+  return ""
+}
 
 export default function GoogleOAuthCallback() {
+  const location = useLocation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [message, setMessage] = useState("Completing Google connection...")
+  const isMicrosoftRoute = location.pathname.includes("/microsoft/")
+  const providerLabel = useMemo(
+    () => (isMicrosoftRoute ? "Outlook" : "Google"),
+    [isMicrosoftRoute]
+  )
+  const [message, setMessage] = useState(`Completing ${providerLabel} connection...`)
 
   useEffect(() => {
     let cancelled = false
@@ -17,12 +39,22 @@ export default function GoogleOAuthCallback() {
       const state = searchParams.get("state") ?? ""
 
       if (error) {
-        navigate("/settings?connected=error", { replace: true })
+        navigate(
+          isMicrosoftRoute
+            ? "/settings?connected=outlook-error"
+            : "/settings?connected=gmail-error",
+          { replace: true }
+        )
         return
       }
 
       if (!code) {
-        navigate("/settings?connected=error", { replace: true })
+        navigate(
+          isMicrosoftRoute
+            ? "/settings?connected=outlook-error"
+            : "/settings?connected=gmail-error",
+          { replace: true }
+        )
         return
       }
 
@@ -36,13 +68,33 @@ export default function GoogleOAuthCallback() {
           return
         }
 
+        if (isMicrosoftRoute || state === "outlook") {
+          if (!cancelled) {
+            setMessage("Connecting Outlook mailbox...")
+          }
+          await exchangeOutlookCode(code)
+          navigate("/settings?connected=outlook", { replace: true })
+          return
+        }
+
         await exchangeGmailCode(code)
         navigate("/settings?connected=gmail", { replace: true })
-      } catch {
+      } catch (error) {
+        const reason = getApiErrorMessage(error)
+        const search = new URLSearchParams({
+          connected: state.startsWith("calendar:")
+            ? "gmail-error"
+            : isMicrosoftRoute || state === "outlook"
+              ? "outlook-error"
+              : "gmail-error"
+        })
+        if (reason) {
+          search.set("message", reason)
+        }
         navigate(
           state.startsWith("calendar:")
             ? "/settings?calendar=error"
-            : "/settings?connected=error",
+            : `/settings?${search.toString()}`,
           { replace: true }
         )
       }
@@ -53,12 +105,12 @@ export default function GoogleOAuthCallback() {
     return () => {
       cancelled = true
     }
-  }, [navigate, searchParams])
+  }, [isMicrosoftRoute, navigate, searchParams])
 
   return (
     <div className="rounded-[24px] bg-white px-6 py-16 text-center shadow-card md:px-8">
       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#8a8a8a]">
-        Google OAuth
+        {providerLabel} OAuth
       </p>
       <h1 className="font-display text-[36px] font-semibold leading-[1.05] text-[#242424] md:text-[52px]">
         {message}

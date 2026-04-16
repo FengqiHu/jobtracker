@@ -37,7 +37,7 @@ export async function isJobApplicationEmail(
   const client = getClient()
   const response = await client.responses.create({
     model: "gpt-5.4-nano",
-    max_output_tokens: 5,
+    max_output_tokens: 16,
     input: [
       {
         role: "system",

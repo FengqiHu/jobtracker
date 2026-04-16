@@ -63,9 +63,21 @@ export function getGmailConnectUrl() {
     .then((response) => response.data)
 }
 
+export function getOutlookConnectUrl() {
+  return api
+    .get<{ authUrl: string }>("/email-accounts/outlook/connect")
+    .then((response) => response.data)
+}
+
 export function exchangeGmailCode(code: string) {
   return api
     .post<EmailAccountSummary>("/email-accounts/gmail/exchange", { code })
+    .then((response) => response.data)
+}
+
+export function exchangeOutlookCode(code: string) {
+  return api
+    .post<EmailAccountSummary>("/email-accounts/outlook/exchange", { code })
     .then((response) => response.data)
 }
 

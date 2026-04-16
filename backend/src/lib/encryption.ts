@@ -1,5 +1,7 @@
 import crypto from "crypto"
 
+import "./env"
+
 const rawKey = process.env.TOKEN_ENCRYPTION_KEY
 
 if (!rawKey || !/^[a-fA-F0-9]{64}$/.test(rawKey)) {

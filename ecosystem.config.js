@@ -6,7 +6,7 @@ module.exports = {
       cwd: "./backend",
       env: {
         NODE_ENV: "production",
-        PORT: 3101
+        PORT: 3000
       },
       watch: false,
       autorestart: true,
