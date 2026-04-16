@@ -37,6 +37,24 @@ settingsRoutes.patch("/settings", async (req, res) => {
   res.json(updated)
 })
 
+settingsRoutes.delete("/settings/low-confidence", async (req, res) => {
+  const threshold = typeof req.body.threshold === "number" ? req.body.threshold : 0.3
+
+  const apps = await prisma.application.findMany({
+    where: { aiConfidence: { lt: threshold } },
+    include: { interviews: true }
+  })
+
+  const ids = apps.map((a) => a.id)
+
+  if (ids.length) {
+    await prisma.interview.deleteMany({ where: { applicationId: { in: ids } } })
+    await prisma.application.deleteMany({ where: { id: { in: ids } } })
+  }
+
+  return res.json({ deleted: ids.length })
+})
+
 settingsRoutes.delete("/settings/data", async (req, res) => {
   if (req.body.confirm !== "DELETE") {
     return res.status(400).json({ message: "Confirmation must equal DELETE" })

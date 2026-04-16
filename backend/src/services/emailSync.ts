@@ -122,6 +122,11 @@ export async function syncAccount(
         return
       }
 
+      if (parsed.confidence < 0.3) {
+        logger.debug({ accountId, messageId, confidence: parsed.confidence }, "Skipping low-confidence parse")
+        return
+      }
+
       parsedEmails += 1
 
       const created = await prisma.application.create({
@@ -133,7 +138,7 @@ export async function syncAccount(
           emailMessageId: messageId,
           emailSubject: subject,
           aiConfidence: parsed.confidence,
-          appliedAt: parsed.status === "APPLIED" ? new Date() : undefined
+          appliedAt: emailDate ?? new Date()
         }
       })
 

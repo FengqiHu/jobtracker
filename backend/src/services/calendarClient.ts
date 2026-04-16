@@ -160,6 +160,35 @@ export async function updateCalendarEvent(
   }
 }
 
+export async function listCalendarEvents(
+  account: EmailAccount,
+  from: Date,
+  to: Date
+): Promise<{ id: string; summary: string; start: string; end: string; location: string | null; description: string | null }[]> {
+  const auth = await getCalendarClient(account)
+  const calendar = google.calendar({ version: "v3", auth })
+
+  const response = await calendar.events.list({
+    calendarId: "primary",
+    timeMin: from.toISOString(),
+    timeMax: to.toISOString(),
+    singleEvents: true,
+    orderBy: "startTime",
+    maxResults: 250
+  })
+
+  return (response.data.items ?? [])
+    .filter((e) => e.id && e.start?.dateTime)
+    .map((e) => ({
+      id: e.id!,
+      summary: e.summary ?? "",
+      start: e.start!.dateTime!,
+      end: e.end?.dateTime ?? e.start!.dateTime!,
+      location: e.location ?? null,
+      description: e.description ?? null
+    }))
+}
+
 export async function deleteCalendarEvent(
   account: EmailAccount,
   eventId: string

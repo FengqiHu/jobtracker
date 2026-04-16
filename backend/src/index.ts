@@ -13,6 +13,7 @@ import { emailAccountRoutes } from "./routes/emailAccounts"
 import { interviewRoutes } from "./routes/interviews"
 import { settingsRoutes } from "./routes/settings"
 import { syncRoutes } from "./routes/sync"
+import { prisma } from "./lib/prisma"
 import { startScheduler } from "./services/scheduler"
 
 export function createApp() {
@@ -88,12 +89,27 @@ export function createApp() {
   return app
 }
 
+async function resetStaleSyncJobs() {
+  const { count } = await prisma.syncJob.updateMany({
+    where: { status: "RUNNING" },
+    data: {
+      status: "FAILED",
+      errorMessage: "Interrupted by server restart",
+      completedAt: new Date()
+    }
+  })
+  if (count > 0) {
+    logger.warn(`Reset ${count} stale RUNNING sync job(s) left over from previous session`)
+  }
+}
+
 export function startServer() {
   const app = createApp()
   const port = Number(process.env.PORT) || 3000
 
-  return app.listen(port, () => {
+  return app.listen(port, async () => {
     logger.info(`Server running on http://localhost:${port}`)
+    await resetStaleSyncJobs()
     startScheduler()
   })
 }

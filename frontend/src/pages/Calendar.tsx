@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { deleteInterview, getApplications, getCalendarConnectUrl, getEmailAccounts, triggerSync } from "@/lib/api"
+import { deleteInterview, getApplications, getCalendarConnectUrl, getEmailAccounts, syncCalendar } from "@/lib/api"
 import { useInterviewsInRange } from "@/hooks/useInterviews"
 import type { Application, InterviewRangeItem } from "@/lib/types"
 import { formatDateTime } from "@/lib/utils"
@@ -66,12 +66,12 @@ export default function CalendarPage() {
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId) ?? null
 
   const syncMutation = useMutation({
-    mutationFn: (accountId: string) => triggerSync(accountId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["email-accounts"] })
-      toast.success("Sync requested")
+    mutationFn: (accountId: string) => syncCalendar(accountId),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ["interviews"] })
+      toast.success(`Calendar synced — ${result.created} new, ${result.synced} updated`)
     },
-    onError: () => toast.error("Unable to trigger sync")
+    onError: () => toast.error("Unable to sync Google Calendar")
   })
 
   const calendarConnectMutation = useMutation({

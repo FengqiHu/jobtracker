@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma"
 import {
   exchangeCalendarCode,
   getCalendarAuthUrl,
+  listCalendarEvents,
   parseCalendarState
 } from "../services/calendarClient"
 import { syncAccount } from "../services/emailSync"
@@ -325,6 +326,106 @@ emailAccountRoutes.delete("/email-accounts/:id", async (req, res) => {
   })
 
   return res.status(204).send()
+})
+
+emailAccountRoutes.post("/calendar/sync/:accountId", async (req, res) => {
+  const account = await prisma.emailAccount.findUnique({
+    where: { id: req.params.accountId }
+  })
+
+  if (!account) {
+    return res.status(404).json({ message: "Account not found" })
+  }
+
+  if (!account.calendarConnected) {
+    return res.status(400).json({ message: "Google Calendar not connected for this account" })
+  }
+
+  const from = new Date()
+  const to = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+
+  const events = await listCalendarEvents(account, from, to)
+
+  let synced = 0
+  let created = 0
+
+  for (const event of events) {
+    const scheduledAt = new Date(event.start)
+    const endTime = new Date(event.end)
+    const durationMinutes = Math.round((endTime.getTime() - scheduledAt.getTime()) / 60_000)
+
+    // Update existing interview if calendarEventId matches
+    const existing = await prisma.interview.findFirst({
+      where: { calendarEventId: event.id }
+    })
+
+    if (existing) {
+      await prisma.interview.update({
+        where: { id: existing.id },
+        data: {
+          title: event.summary || existing.title,
+          scheduledAt,
+          durationMinutes: durationMinutes > 0 ? durationMinutes : existing.durationMinutes,
+          location: event.location ?? existing.location,
+          notes: event.description ?? existing.notes
+        }
+      })
+      synced++
+      continue
+    }
+
+    // Try to match event to an existing application by company name in the summary
+    // Expected format: "Interview — Company (Role)" or any event with "interview" keyword
+    const summaryLower = event.summary.toLowerCase()
+    if (!summaryLower.includes("interview")) continue
+
+    const application = await prisma.application.findFirst({
+      where: {
+        emailAccountId: account.id,
+        status: { in: ["APPLIED", "INTERVIEWING"] }
+      },
+      orderBy: { updatedAt: "desc" }
+    })
+
+    // Try to match company name from event title
+    const matchedApplication = await (async () => {
+      const applications = await prisma.application.findMany({
+        where: { emailAccountId: account.id }
+      })
+      return applications.find((app) =>
+        event.summary.toLowerCase().includes(app.company.toLowerCase())
+      ) ?? application
+    })()
+
+    if (!matchedApplication) continue
+
+    const duplicate = await prisma.interview.findFirst({
+      where: {
+        applicationId: matchedApplication.id,
+        scheduledAt: {
+          gte: new Date(scheduledAt.getTime() - 60 * 60 * 1000),
+          lte: new Date(scheduledAt.getTime() + 60 * 60 * 1000)
+        }
+      }
+    })
+
+    if (duplicate) continue
+
+    await prisma.interview.create({
+      data: {
+        applicationId: matchedApplication.id,
+        title: event.summary,
+        scheduledAt,
+        durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
+        location: event.location ?? null,
+        notes: event.description ?? null,
+        calendarEventId: event.id
+      }
+    })
+    created++
+  }
+
+  return res.json({ total: events.length, synced, created })
 })
 
 emailAccountRoutes.get("/calendar/connect/:accountId", async (req, res) => {

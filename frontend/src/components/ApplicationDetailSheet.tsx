@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { CalendarPlus, PencilLine, Trash2 } from "lucide-react"
+import { CalendarPlus, ExternalLink, PencilLine, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { StatusBadge } from "@/components/StatusBadge"
@@ -167,6 +167,17 @@ export function ApplicationDetailSheet({ applicationId, open, onOpenChange }: Pr
                         Source subject
                       </p>
                       <p className="text-sm text-[#242424]">{data.emailSubject || "Manual entry"}</p>
+                      {data.emailMessageId && data.emailAccount?.provider === "gmail" ? (
+                        <a
+                          href={`https://mail.google.com/mail/u/0/#all/${data.emailMessageId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          View in Gmail
+                        </a>
+                      ) : null}
                     </div>
                   </div>
                   <div className="space-y-2">

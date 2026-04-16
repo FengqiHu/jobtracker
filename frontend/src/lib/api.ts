@@ -114,6 +114,12 @@ export function exchangeCalendarCode(body: { code: string; state: string }) {
   return api.post<{ connected: boolean }>("/calendar/exchange", body).then((response) => response.data)
 }
 
+export function syncCalendar(accountId: string) {
+  return api
+    .post<{ total: number; synced: number; created: number }>(`/calendar/sync/${accountId}`)
+    .then((response) => response.data)
+}
+
 export function getInterviews(params?: { from?: string; to?: string }) {
   return api
     .get<InterviewRangeItem[]>("/interviews", { params })
@@ -166,4 +172,10 @@ export function clearData(confirm: string) {
   return api.delete("/settings/data", {
     data: { confirm }
   })
+}
+
+export function clearLowConfidence(threshold = 0.3) {
+  return api
+    .delete<{ deleted: number }>("/settings/low-confidence", { data: { threshold } })
+    .then((r) => r.data)
 }

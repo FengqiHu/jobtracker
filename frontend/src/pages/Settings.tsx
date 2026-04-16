@@ -23,7 +23,7 @@ import {
   SelectValue
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { clearData, getEmailAccounts, getSettings, patchSettings } from "@/lib/api"
+import { clearData, clearLowConfidence, getEmailAccounts, getSettings, patchSettings } from "@/lib/api"
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
@@ -86,6 +86,19 @@ export default function SettingsPage() {
       setConfirm("")
     },
     onError: () => toast.error("Unable to clear data")
+  })
+
+  const lowConfidenceMutation = useMutation({
+    mutationFn: () => clearLowConfidence(0.3),
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["applications"] }),
+        queryClient.invalidateQueries({ queryKey: ["application-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["interviews"] })
+      ])
+      toast.success(`Removed ${result.deleted} low-confidence application(s)`)
+    },
+    onError: () => toast.error("Unable to remove low-confidence applications")
   })
 
   const settings = settingsQuery.data
@@ -163,14 +176,29 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>Danger zone</CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <p className="max-w-xl text-sm leading-6 text-[#898989]">
-                Clear all application and interview data while keeping your email connections
-                and sync history intact.
-              </p>
-              <Button variant="secondary" onClick={() => setDangerOpen(true)}>
-                Clear all application data
-              </Button>
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p className="max-w-xl text-sm leading-6 text-[#898989]">
+                  Remove applications where AI confidence is below 30% — likely false
+                  positives from non-job emails.
+                </p>
+                <Button
+                  variant="secondary"
+                  onClick={() => lowConfidenceMutation.mutate()}
+                  disabled={lowConfidenceMutation.isPending}
+                >
+                  {lowConfidenceMutation.isPending ? "Removing..." : "Remove low-confidence"}
+                </Button>
+              </div>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p className="max-w-xl text-sm leading-6 text-[#898989]">
+                  Clear all application and interview data while keeping your email connections
+                  and sync history intact.
+                </p>
+                <Button variant="secondary" onClick={() => setDangerOpen(true)}>
+                  Clear all application data
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
