@@ -1,7 +1,7 @@
 import { Router } from "express"
 
 import { prisma } from "../lib/prisma"
-import { syncAccount } from "../services/emailSync"
+import { cancelSync, syncAccount } from "../services/emailSync"
 
 export const syncRoutes = Router()
 
@@ -62,6 +62,11 @@ syncRoutes.post("/sync/trigger-all", async (_req, res) => {
     syncAccount(account.id, "incremental", job.id).catch(() => undefined)
   }
 
+  res.status(202).json({ accepted: true })
+})
+
+syncRoutes.post("/sync/cancel/:accountId", async (req, res) => {
+  cancelSync(req.params.accountId)
   res.status(202).json({ accepted: true })
 })
 

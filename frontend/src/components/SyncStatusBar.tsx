@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, Square } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -8,7 +8,7 @@ import {
   TooltipContent,
   TooltipTrigger
 } from "@/components/ui/tooltip"
-import { getEmailAccounts, triggerSync } from "@/lib/api"
+import { cancelSync, getEmailAccounts, triggerSync } from "@/lib/api"
 import { formatRelativeTime } from "@/lib/utils"
 
 function dotColor(status: string) {
@@ -29,13 +29,22 @@ export function SyncStatusBar() {
     }
   })
 
-  const mutation = useMutation({
+  const syncMutation = useMutation({
     mutationFn: triggerSync,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["email-accounts"] })
       toast.success("Sync started")
     },
     onError: () => toast.error("Unable to start sync")
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: cancelSync,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["email-accounts"] })
+      toast.info("Sync cancelled")
+    },
+    onError: () => toast.error("Unable to cancel sync")
   })
 
   return (
@@ -52,6 +61,8 @@ export function SyncStatusBar() {
         )}
         {data?.map((account) => {
           const status = account.latestSync?.status ?? "PENDING"
+          const isRunning = status === "RUNNING"
+
           return (
             <div
               key={account.id}
@@ -60,14 +71,20 @@ export function SyncStatusBar() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className={`h-2.5 w-2.5 rounded-full ${dotColor(status)}`} />
+                    {/* Pulsing ring while running, static dot otherwise */}
+                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                      {isRunning && (
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+                      )}
+                      <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dotColor(status)}`} />
+                    </span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-[#242424]">
                         {account.email}
                       </p>
                       <p className="truncate text-xs text-[#898989]">
-                        {status === "RUNNING"
-                          ? "Syncing now"
+                        {isRunning
+                          ? "Syncing now…"
                           : `Last update ${formatRelativeTime(account.latestSync?.completedAt ?? null)}`}
                       </p>
                     </div>
@@ -76,19 +93,34 @@ export function SyncStatusBar() {
                 <TooltipContent>
                   <p>{account.email}</p>
                   <p>Status: {status}</p>
-                  {account.latestSync?.errorMessage ? <p>{account.latestSync.errorMessage}</p> : null}
+                  {account.latestSync?.errorMessage ? (
+                    <p>{account.latestSync.errorMessage}</p>
+                  ) : null}
                 </TooltipContent>
               </Tooltip>
 
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => mutation.mutate(account.id)}
-                disabled={mutation.isPending}
-                aria-label={`Sync ${account.email}`}
-              >
-                <RefreshCw className="h-4 w-4" />
-              </Button>
+              {isRunning ? (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => cancelMutation.mutate(account.id)}
+                  disabled={cancelMutation.isPending}
+                  aria-label={`Stop sync for ${account.email}`}
+                  className="text-red-500 hover:text-red-600"
+                >
+                  <Square className="h-4 w-4 fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => syncMutation.mutate(account.id)}
+                  disabled={syncMutation.isPending}
+                  aria-label={`Sync ${account.email}`}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           )
         })}

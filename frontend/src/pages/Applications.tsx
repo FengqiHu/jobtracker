@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Filter, Plus } from "lucide-react"
+import { Filter, Plus, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 
 import { ApplicationDetailSheet } from "@/components/ApplicationDetailSheet"
@@ -83,6 +83,18 @@ export default function Applications() {
     queryFn: getEmailAccounts
   })
 
+  // Poll faster while any account is actively syncing so new cards appear in near-real-time
+  const isSyncing =
+    accountsQuery.data?.some((a) => a.latestSync?.status === "RUNNING") ?? false
+
+  useEffect(() => {
+    if (!isSyncing) return
+    const id = setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: ["applications"] })
+    }, 3_000)
+    return () => clearInterval(id)
+  }, [isSyncing, queryClient])
+
   const invalidateAll = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["applications"] }),
@@ -148,6 +160,15 @@ export default function Applications() {
             </Button>
             <Button variant={view === "kanban" ? "default" : "secondary"} onClick={() => setView("kanban")}>
               Kanban
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon"
+              onClick={() => void invalidateAll()}
+              disabled={applicationsQuery.isFetching}
+              aria-label="Refresh applications"
+            >
+              <RefreshCw className={`h-4 w-4 ${applicationsQuery.isFetching ? "animate-spin" : ""}`} />
             </Button>
           </div>
         </CardHeader>

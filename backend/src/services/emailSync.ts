@@ -13,6 +13,13 @@ import * as microsoftClient from "./microsoftClient"
 import { decrypt } from "../lib/encryption"
 import { isJobRelatedEmail } from "../lib/emailFilter"
 
+// Account IDs whose running sync should be aborted at the next iteration
+const cancelRequests = new Set<string>()
+
+export function cancelSync(accountId: string) {
+  cancelRequests.add(accountId)
+}
+
 const statusOrder: Record<ApplicationStatus, number> = {
   APPLIED: 1,
   INTERVIEWING: 2,
@@ -175,6 +182,11 @@ export async function syncAccount(
       emailDate: Date | null,
       bodyLoader: () => Promise<string>
     ) => {
+      if (cancelRequests.has(accountId)) {
+        cancelRequests.delete(accountId)
+        throw new Error("Sync cancelled by user")
+      }
+
       totalEmails += 1
 
       if (emailDate && (!latestEmailDate || emailDate > latestEmailDate)) {

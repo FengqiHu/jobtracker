@@ -152,6 +152,10 @@ export function triggerSync(accountId: string) {
   return api.post(`/sync/trigger/${accountId}`)
 }
 
+export function cancelSync(accountId: string) {
+  return api.post(`/sync/cancel/${accountId}`)
+}
+
 export function triggerFullSync(accountId: string) {
   return api.post(`/sync/trigger/${accountId}`, { type: "initial" })
 }

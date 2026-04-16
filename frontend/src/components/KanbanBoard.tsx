@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react"
 import { CalendarPlus, ChevronRight } from "lucide-react"
 
 import { StatusBadge } from "@/components/StatusBadge"
@@ -27,6 +28,23 @@ export function KanbanBoard({
   onStatusChange,
   onAddInterview
 }: Props) {
+  const prevIdsRef = useRef<Set<string>>(new Set())
+  const [newIds, setNewIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    const currentIds = new Set(applications.map((a) => a.id))
+    // Only animate additions after the initial render (prevIds non-empty)
+    if (prevIdsRef.current.size > 0) {
+      const added = applications.filter((a) => !prevIdsRef.current.has(a.id))
+      if (added.length > 0) {
+        setNewIds(new Set(added.map((a) => a.id)))
+        const timer = setTimeout(() => setNewIds(new Set()), 500)
+        prevIdsRef.current = currentIds
+        return () => clearTimeout(timer)
+      }
+    }
+    prevIdsRef.current = currentIds
+  }, [applications])
   return (
     <div className="grid gap-4 xl:grid-cols-4">
       {columns.map((column) => {
@@ -44,13 +62,13 @@ export function KanbanBoard({
                 right-padding zone, so cards stay at their original width */}
             <div
               className="kanban-column-scroll space-y-3 overflow-y-auto"
-              style={{ maxHeight: "calc(100vh - 320px)", paddingRight: "6px" }}
+              style={{ maxHeight: "calc(100vh - 320px)" }}
             >
               {items.map((application) => (
                 <button
                   key={application.id}
                   onClick={() => onOpen(application.id)}
-                  className="w-full rounded-[16px] bg-white p-4 text-left shadow-card transition-transform hover:-translate-y-0.5"
+                  className={`w-full rounded-[16px] bg-white p-4 text-left shadow-card transition-transform hover:-translate-y-0.5 ${newIds.has(application.id) ? "kanban-card-enter" : ""}`}
                 >
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div>
