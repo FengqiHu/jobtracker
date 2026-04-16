@@ -1,0 +1,81 @@
+@import url("https://fonts.googleapis.com/css2?family=Cal+Sans&family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #242424;
+  --ink-strong: #111111;
+  --ink-soft: #898989;
+  --surface-muted: #f6f6f6;
+  --line: rgba(34, 42, 53, 0.08);
+  --shadow-card: rgba(19, 19, 22, 0.08) 0px 1px 5px -4px, rgba(34, 42, 53, 0.08) 0px 0px 0px 1px,
+    rgba(34, 42, 53, 0.05) 0px 4px 8px;
+  --shadow-soft: rgba(34, 42, 53, 0.05) 0px 4px 8px;
+  --shadow-inset: rgba(255, 255, 255, 0.15) 0px 2px 0px inset;
+}
+
+@layer base {
+  * {
+    @apply border-transparent;
+  }
+
+  body {
+    @apply min-h-screen bg-white font-sans text-[#242424] antialiased;
+    background-image:
+      radial-gradient(circle at top left, rgba(36, 36, 36, 0.04), transparent 28%),
+      linear-gradient(to bottom, #ffffff, #fbfbfb);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: "Cal Sans", Inter, sans-serif;
+    font-weight: 600;
+    color: #242424;
+  }
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.rbc-calendar {
+  border-radius: 16px;
+  overflow: hidden;
+  background: white;
+  box-shadow: var(--shadow-card);
+}
+
+.rbc-toolbar {
+  padding: 1rem;
+  border-bottom: 1px solid #efefef;
+}
+
+.rbc-toolbar button {
+  border: 0;
+  border-radius: 9999px;
+  background: #f3f3f3;
+  color: #242424;
+}
+
+.rbc-toolbar button.rbc-active {
+  background: #242424;
+  color: white;
+}
+
+.rbc-month-view,
+.rbc-time-view {
+  border: 0;
+}
+
+.rbc-header,
+.rbc-time-header-content,
+.rbc-time-content,
+.rbc-day-bg,
+.rbc-month-row + .rbc-month-row,
+.rbc-timeslot-group {
+  border-color: #efefef;
+}

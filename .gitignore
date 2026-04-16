@@ -1,0 +1,14 @@
+node_modules/
+.env
+.DS_Store
+backend/data/
+!backend/data/.gitkeep
+frontend/dist/
+backend/dist/
+dist/
+logs/
+*.db
+*.db-journal
+*.log
+coverage/
+pnpm-lock.yaml

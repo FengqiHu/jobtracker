@@ -1,0 +1,16 @@
+{
+  "name": "job-tracker",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter backend dev\" \"pnpm --filter frontend dev\"",
+    "build": "pnpm --filter frontend build && pnpm --filter backend build",
+    "start": "pm2 start ecosystem.config.js",
+    "stop": "pm2 stop job-tracker",
+    "setup": "cp .env.example .env && pnpm --filter backend db:migrate && pnpm --filter backend db:seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
