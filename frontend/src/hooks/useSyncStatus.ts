@@ -6,9 +6,10 @@ export function useSyncStatus() {
   return useQuery({
     queryKey: ["sync-status"],
     queryFn: getSyncStatus,
+    refetchOnWindowFocus: false,
     refetchInterval: (query) => {
       const data = query.state.data
-      return data?.some((item) => item.status === "RUNNING") ? 2_000 : 10_000
+      return data?.some((item) => item.status === "RUNNING") ? 5_000 : 30_000
     }
   })
 }

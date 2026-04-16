@@ -7,15 +7,16 @@ import {
 } from "react-big-calendar"
 import { format, getDay, parse, startOfWeek } from "date-fns"
 import { enUS } from "date-fns/locale"
-import { PencilLine, Trash2 } from "lucide-react"
+import { CalendarPlus, PencilLine, RefreshCw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { InterviewDialog } from "@/components/InterviewDialog"
 import { StatusBadge } from "@/components/StatusBadge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { deleteInterview, getApplications } from "@/lib/api"
+import { deleteInterview, getApplications, getCalendarConnectUrl, getEmailAccounts, triggerSync } from "@/lib/api"
 import { useInterviewsInRange } from "@/hooks/useInterviews"
 import type { Application, InterviewRangeItem } from "@/lib/types"
 import { formatDateTime } from "@/lib/utils"
@@ -41,13 +42,39 @@ export default function CalendarPage() {
   const [selected, setSelected] = useState<InterviewRangeItem | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<InterviewRangeItem | null>(null)
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("all")
 
-  const from = new Date().toISOString()
-  const to = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
+  const [from, to] = useMemo(() => {
+    const now = Date.now()
+    return [
+      new Date(now).toISOString(),
+      new Date(now + 90 * 24 * 60 * 60 * 1000).toISOString()
+    ]
+  }, [])
   const interviewsQuery = useInterviewsInRange(from, to)
   const applicationsQuery = useQuery({
     queryKey: ["applications", "calendar-options"],
     queryFn: () => getApplications({ limit: 200, sortBy: "updatedAt", order: "desc" })
+  })
+  const accountsQuery = useQuery({
+    queryKey: ["email-accounts"],
+    queryFn: getEmailAccounts,
+    staleTime: 60_000
+  })
+
+  const accounts = accountsQuery.data ?? []
+  const selectedAccount = accounts.find((a) => a.id === selectedAccountId) ?? null
+
+  const syncMutation = useMutation({
+    mutationFn: (accountId: string) => triggerSync(accountId),
+    onSuccess: () => toast.success("Sync requested"),
+    onError: () => toast.error("Unable to trigger sync")
+  })
+
+  const calendarConnectMutation = useMutation({
+    mutationFn: (accountId: string) => getCalendarConnectUrl(accountId),
+    onSuccess: ({ authUrl }) => { window.location.href = authUrl },
+    onError: () => toast.error("Unable to start Google Calendar connection")
   })
 
   const deleteMutation = useMutation({
@@ -63,16 +90,18 @@ export default function CalendarPage() {
     onError: () => toast.error("Unable to delete interview")
   })
 
-  const events = useMemo<InterviewEvent[]>(
-    () =>
-      (interviewsQuery.data ?? []).map((interview) => ({
-        title: `${interview.application.company} — ${interview.application.role}`,
-        start: new Date(interview.scheduledAt),
-        end: new Date(new Date(interview.scheduledAt).getTime() + interview.durationMinutes * 60_000),
-        resource: interview
-      })),
-    [interviewsQuery.data]
-  )
+  const events = useMemo<InterviewEvent[]>(() => {
+    const all = interviewsQuery.data ?? []
+    const filtered = selectedAccountId === "all"
+      ? all
+      : all.filter((i) => i.application.emailAccountId === selectedAccountId)
+    return filtered.map((interview) => ({
+      title: `${interview.application.company} — ${interview.application.role}`,
+      start: new Date(interview.scheduledAt),
+      end: new Date(new Date(interview.scheduledAt).getTime() + interview.durationMinutes * 60_000),
+      resource: interview
+    }))
+  }, [interviewsQuery.data, selectedAccountId])
 
   const eventStyleGetter = (event: InterviewEvent) => {
     const status = event.resource.application.status
@@ -96,7 +125,45 @@ export default function CalendarPage() {
           </p>
           <h1 className="text-[36px] leading-[1.05] md:text-[56px]">See every interview in one calm timeline.</h1>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>Schedule Interview</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All accounts" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All accounts</SelectItem>
+              {accounts.map((account) => (
+                <SelectItem key={account.id} value={account.id}>
+                  {account.email}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {selectedAccount && !selectedAccount.calendarConnected ? (
+            <Button
+              variant="secondary"
+              onClick={() => calendarConnectMutation.mutate(selectedAccount.id)}
+              disabled={calendarConnectMutation.isPending}
+            >
+              <CalendarPlus className="h-4 w-4" />
+              Connect Calendar
+            </Button>
+          ) : null}
+
+          {selectedAccount?.calendarConnected ? (
+            <Button
+              variant="secondary"
+              onClick={() => syncMutation.mutate(selectedAccount.id)}
+              disabled={syncMutation.isPending}
+            >
+              <RefreshCw className={`h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+              {syncMutation.isPending ? "Syncing..." : "Sync now"}
+            </Button>
+          ) : null}
+
+          <Button onClick={() => setDialogOpen(true)}>Schedule Interview</Button>
+        </div>
       </section>
 
       <Card className="p-4">

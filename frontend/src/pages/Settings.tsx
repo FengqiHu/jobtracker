@@ -114,8 +114,8 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>Preferences</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
+            <CardContent className="flex flex-col gap-4 md:flex-row md:items-end">
+              <div className="space-y-2 md:flex-1">
                 <Label>Sync interval</Label>
                 <Select
                   value={String(settings?.syncIntervalMinutes ?? 15)}
@@ -123,7 +123,7 @@ export default function SettingsPage() {
                     settingsMutation.mutate({ syncIntervalMinutes: Number(value) })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -136,7 +136,7 @@ export default function SettingsPage() {
                 </Select>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 md:flex-1">
                 <Label>Initial sync window</Label>
                 <Select
                   value={String(settings?.initialSyncDays ?? 90)}
@@ -144,7 +144,7 @@ export default function SettingsPage() {
                     settingsMutation.mutate({ initialSyncDays: Number(value) })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
