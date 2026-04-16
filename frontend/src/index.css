@@ -42,6 +42,29 @@
   min-height: 100vh;
 }
 
+/* Kanban column independent scroll */
+.kanban-column-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #e0e0e0 transparent;
+}
+
+.kanban-column-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.kanban-column-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kanban-column-scroll::-webkit-scrollbar-thumb {
+  background-color: #e0e0e0;
+  border-radius: 9999px;
+}
+
+.kanban-column-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #c8c8c8;
+}
+
 .rbc-calendar {
   border-radius: 16px;
   overflow: hidden;

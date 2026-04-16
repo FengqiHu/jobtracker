@@ -161,7 +161,7 @@ export async function getMessageBody(config: ImapConfig, uid: number): Promise<s
   return withClient(config, async (client) => {
     await client.mailboxOpen("INBOX")
 
-    for await (const message of client.fetch(String(uid), { source: true })) {
+    for await (const message of client.fetch(String(uid), { source: true }, { uid: true })) {
       const parsed = await simpleParser(message.source)
       const body =
         parsed.text?.trim() ||
