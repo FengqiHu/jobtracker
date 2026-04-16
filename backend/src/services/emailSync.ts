@@ -1,7 +1,11 @@
-import { ApplicationStatus, SyncStatus } from "@prisma/client"
+import { Application, ApplicationStatus, SyncStatus } from "@prisma/client"
 
 import { prisma } from "../lib/prisma"
 import { logger } from "../lib/logger"
+import {
+  getEmailAccountLastEmailDate,
+  updateEmailAccountSyncState
+} from "../lib/emailAccountSyncState"
 import * as aiParser from "./aiParser"
 import * as gmailClient from "./gmailClient"
 import * as imapClient from "./imapClient"
@@ -24,12 +28,84 @@ function canProgress(
   if (next === "REJECTED") {
     return current !== "REJECTED"
   }
-
   return statusOrder[next] > statusOrder[current]
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Normalize a string for fuzzy matching: lowercase, collapse whitespace, strip punctuation */
+function normalizeForMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+/**
+ * Returns true when the AI-extracted role looks like a placeholder that means
+ * "I couldn't find the role in this email". Common in rejection emails.
+ */
+function isGenericRole(role: string): boolean {
+  const n = normalizeForMatch(role)
+  if (n.length < 3) return true
+  return /^(the\s+)?(position|role|job|opportunity|opening|posting)$/.test(n) ||
+    /^(unknown|n a|not specified|not applicable|unspecified|various)$/.test(n)
+}
+
+/**
+ * Find the best matching existing Application for a newly parsed email.
+ *
+ * Matching strategy:
+ *  1. Exact: same account + normalized company + normalized role
+ *  2. Rejection fallback: if role is generic OR there is exactly one non-rejected
+ *     application at that company → pick the most recently updated one
+ */
+async function findMatchingApplication(
+  emailAccountId: string,
+  company: string,
+  role: string,
+  status: ApplicationStatus
+): Promise<Application | null> {
+  const normalizedCompany = normalizeForMatch(company)
+  const normalizedRole = normalizeForMatch(role)
+
+  const allAtAccount = await prisma.application.findMany({
+    where: { emailAccountId },
+    orderBy: { updatedAt: "desc" }
+  })
+
+  const companyMatches = allAtAccount.filter(
+    (app) => normalizeForMatch(app.company) === normalizedCompany
+  )
+
+  if (companyMatches.length === 0) return null
+
+  // 1. Exact role match
+  const exact = companyMatches.find(
+    (app) => normalizeForMatch(app.role) === normalizedRole
+  )
+  if (exact) return exact
+
+  // 2. Rejection fallback
+  if (status === "REJECTED") {
+    // Generic role from AI means the email didn't mention the role explicitly
+    if (isGenericRole(role)) {
+      // Prefer a non-rejected application; if none, take the most recent
+      const nonRejected = companyMatches.filter((app) => app.status !== "REJECTED")
+      return nonRejected.length > 0 ? nonRejected[0] : companyMatches[0]
+    }
+
+    // Multiple applications at the company — pick most recent non-rejected
+    if (companyMatches.length === 1) return companyMatches[0]
+    const nonRejected = companyMatches.filter((app) => app.status !== "REJECTED")
+    return nonRejected.length > 0 ? nonRejected[0] : companyMatches[0]
+  }
+
+  return null
 }
 
 export async function syncAccount(
@@ -51,17 +127,21 @@ export async function syncAccount(
     const settings = await prisma.appSettings.findUnique({
       where: { id: "singleton" }
     })
+    const lastEmailDate =
+      type === "incremental" ? await getEmailAccountLastEmailDate(account.id) : null
 
     const syncJob =
       jobId &&
-      (await prisma.syncJob.update({
-        where: { id: jobId },
-        data: {
-          status: SyncStatus.RUNNING,
-          startedAt: new Date(),
-          errorMessage: null
-        }
-      }).catch(() => null))
+      (await prisma.syncJob
+        .update({
+          where: { id: jobId },
+          data: {
+            status: SyncStatus.RUNNING,
+            startedAt: new Date(),
+            errorMessage: null
+          }
+        })
+        .catch(() => null))
 
     if (!syncJob) {
       const created = await prisma.syncJob.create({
@@ -80,7 +160,9 @@ export async function syncAccount(
         ? new Date(
             Date.now() - (settings?.initialSyncDays ?? 90) * 24 * 60 * 60 * 1000
           )
-        : account.lastEmailDate ?? account.lastSyncedAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000)
+        : lastEmailDate ??
+          account.lastSyncedAt ??
+          new Date(Date.now() - 24 * 60 * 60 * 1000)
 
     let totalEmails = 0
     let parsedEmails = 0
@@ -99,20 +181,19 @@ export async function syncAccount(
         latestEmailDate = emailDate
       }
 
-      const existing = await prisma.application.findFirst({
-        where: {
-          emailAccountId: account.id,
-          emailMessageId: messageId
-        }
+      // Dedup: has this message already been processed for any application on this account?
+      const existingEmailRecord = await prisma.applicationEmail.findFirst({
+        where: { messageId, application: { emailAccountId: account.id } }
       })
+      if (existingEmailRecord) return
 
-      if (existing) {
-        return
-      }
+      // Legacy dedup for applications created before ApplicationEmail was introduced
+      const legacyRecord = await prisma.application.findFirst({
+        where: { emailAccountId: account.id, emailMessageId: messageId }
+      })
+      if (legacyRecord) return
 
-      if (!isJobRelatedEmail(subject, from)) {
-        return
-      }
+      if (!isJobRelatedEmail(subject, from)) return
 
       const body = await bodyLoader()
       const parsed = await aiParser.parseJobEmail(subject, body, from)
@@ -122,71 +203,98 @@ export async function syncAccount(
         return
       }
 
-      if (parsed.confidence < 0.3) {
-        logger.debug({ accountId, messageId, confidence: parsed.confidence }, "Skipping low-confidence parse")
+      if (parsed.confidence < 0.5) {
+        logger.debug(
+          { accountId, messageId, confidence: parsed.confidence },
+          "Skipping low-confidence parse"
+        )
         return
       }
 
       parsedEmails += 1
 
-      const created = await prisma.application.create({
-        data: {
-          emailAccountId: account.id,
-          company: parsed.company,
-          role: parsed.role,
-          status: parsed.status,
-          emailMessageId: messageId,
-          emailSubject: subject,
-          aiConfidence: parsed.confidence,
-          appliedAt: emailDate ?? new Date()
-        }
-      })
+      // Find an existing application this email belongs to
+      const matchedApp = await findMatchingApplication(
+        account.id,
+        parsed.company,
+        parsed.role,
+        parsed.status
+      )
 
-      const priorApplication = await prisma.application.findFirst({
-        where: {
-          id: { not: created.id },
-          emailAccountId: account.id,
-          company: parsed.company,
-          role: parsed.role
-        },
-        orderBy: {
-          updatedAt: "desc"
-        }
-      })
+      let targetAppId: string
 
-      if (priorApplication && canProgress(priorApplication.status, parsed.status)) {
-        await prisma.application.update({
-          where: { id: priorApplication.id },
-          data: {
-            status: parsed.status,
-            emailSubject: subject,
-            aiConfidence: parsed.confidence,
-            notes: priorApplication.notes,
-            appliedAt: priorApplication.appliedAt ?? created.appliedAt
-          }
-        })
-      }
-
-      if (parsed.status === "INTERVIEWING" && parsed.interviewDate) {
-        const scheduledAt = new Date(parsed.interviewDate)
-        const duplicate = await prisma.interview.findFirst({
-          where: {
-            applicationId: created.id,
-            scheduledAt: {
-              gte: new Date(scheduledAt.getTime() - 2 * 60 * 60 * 1000),
-              lte: new Date(scheduledAt.getTime() + 2 * 60 * 60 * 1000)
-            }
-          }
-        })
-
-        if (!duplicate) {
-          await prisma.interview.create({
+      if (matchedApp) {
+        // Update status only when the email represents a progression
+        if (canProgress(matchedApp.status, parsed.status as Exclude<ApplicationStatus, "WITHDRAWN">)) {
+          await prisma.application.update({
+            where: { id: matchedApp.id },
             data: {
-              applicationId: created.id,
-              title: "Interview",
-              scheduledAt
+              status: parsed.status,
+              aiConfidence: parsed.confidence
             }
           })
+          logger.debug(
+            { accountId, appId: matchedApp.id, from: matchedApp.status, to: parsed.status },
+            "Application status progressed"
+          )
+        }
+        targetAppId = matchedApp.id
+      } else {
+        // No matching application — create a new one
+        const newApp = await prisma.application.create({
+          data: {
+            emailAccountId: account.id,
+            company: parsed.company,
+            role: parsed.role,
+            status: parsed.status,
+            emailMessageId: messageId,
+            emailSubject: subject,
+            aiConfidence: parsed.confidence,
+            appliedAt: emailDate ?? new Date()
+          }
+        })
+        targetAppId = newApp.id
+      }
+
+      // Record this email in the application's history
+      await prisma.applicationEmail.create({
+        data: {
+          applicationId: targetAppId,
+          messageId,
+          subject,
+          receivedAt: emailDate,
+          provider: account.provider
+        }
+      })
+
+      // Create an interview record if the email contains a scheduled date
+      if (parsed.status === "INTERVIEWING" && parsed.interviewDate) {
+        const scheduledAt = new Date(parsed.interviewDate)
+        if (isNaN(scheduledAt.getTime())) {
+          logger.warn(
+            { accountId, messageId, interviewDate: parsed.interviewDate },
+            "Skipping interview creation: invalid date from AI parser"
+          )
+        } else {
+          const duplicate = await prisma.interview.findFirst({
+            where: {
+              applicationId: targetAppId,
+              scheduledAt: {
+                gte: new Date(scheduledAt.getTime() - 2 * 60 * 60 * 1000),
+                lte: new Date(scheduledAt.getTime() + 2 * 60 * 60 * 1000)
+              }
+            }
+          })
+
+          if (!duplicate) {
+            await prisma.interview.create({
+              data: {
+                applicationId: targetAppId,
+                title: "Interview",
+                scheduledAt
+              }
+            })
+          }
         }
       }
 
@@ -243,13 +351,7 @@ export async function syncAccount(
       }
     }
 
-    await prisma.emailAccount.update({
-      where: { id: account.id },
-      data: {
-        lastSyncedAt: new Date(),
-        ...(latestEmailDate ? { lastEmailDate: latestEmailDate } : {})
-      }
-    })
+    await updateEmailAccountSyncState(account.id, new Date(), latestEmailDate)
 
     await prisma.syncJob.update({
       where: { id: jobId! },

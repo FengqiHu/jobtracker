@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "predev": "prisma generate",
     "dev": "tsx watch src/index.ts",
+    "prebuild": "prisma generate",
     "build": "tsc",
     "start": "node dist/index.js",
     "db:migrate": "node --experimental-strip-types prisma/migrate.ts",

@@ -6,6 +6,8 @@ import { syncAccount } from "../services/emailSync"
 export const syncRoutes = Router()
 
 syncRoutes.post("/sync/trigger/:accountId", async (req, res) => {
+  const type = req.body?.type === "initial" ? "initial" : "incremental"
+
   const running = await prisma.syncJob.findFirst({
     where: {
       emailAccountId: req.params.accountId,
@@ -20,12 +22,12 @@ syncRoutes.post("/sync/trigger/:accountId", async (req, res) => {
   const job = await prisma.syncJob.create({
     data: {
       emailAccountId: req.params.accountId,
-      type: "incremental",
+      type,
       status: "PENDING"
     }
   })
 
-  syncAccount(req.params.accountId, "incremental", job.id).catch(() => undefined)
+  syncAccount(req.params.accountId, type, job.id).catch(() => undefined)
 
   return res.status(202).json({ accepted: true })
 })

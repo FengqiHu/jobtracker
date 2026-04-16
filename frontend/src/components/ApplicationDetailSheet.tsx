@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { CalendarPlus, ExternalLink, PencilLine, Trash2 } from "lucide-react"
+import { CalendarPlus, ExternalLink, Mail, PencilLine, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { StatusBadge } from "@/components/StatusBadge"
@@ -24,7 +24,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { deleteApplication, deleteInterview, patchApplication } from "@/lib/api"
 import { useApplication } from "@/hooks/useApplications"
-import type { ApplicationStatus, Interview } from "@/lib/types"
+import type { ApplicationEmail, ApplicationStatus, Interview } from "@/lib/types"
 import { formatDateTime } from "@/lib/utils"
 
 const statuses: ApplicationStatus[] = [
@@ -291,6 +291,10 @@ export function ApplicationDetailSheet({ applicationId, open, onOpenChange }: Pr
                 </CardContent>
               </Card>
 
+              {data.emailHistory && data.emailHistory.length > 0 ? (
+                <EmailHistoryCard emails={data.emailHistory} />
+              ) : null}
+
               <Button
                 className="w-full"
                 variant="ghost"
@@ -328,5 +332,46 @@ export function ApplicationDetailSheet({ applicationId, open, onOpenChange }: Pr
         />
       ) : null}
     </>
+  )
+}
+
+function EmailHistoryCard({ emails }: { emails: ApplicationEmail[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <span className="flex items-center gap-2">
+            <Mail className="h-4 w-4" />
+            Email history
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ol className="relative border-l border-[#e5e5e5]">
+          {emails.map((email) => (
+            <li key={email.id} className="mb-4 ml-4 last:mb-0">
+              <span className="absolute -left-1.5 mt-1 h-3 w-3 rounded-full border-2 border-white bg-[#c0c0c0]" />
+              <p className="text-xs text-[#898989]">
+                {email.receivedAt ? formatDateTime(email.receivedAt) : "Unknown date"}
+              </p>
+              <p className="mt-0.5 text-sm font-medium text-[#242424] leading-snug">
+                {email.subject || "(no subject)"}
+              </p>
+              {email.provider === "gmail" ? (
+                <a
+                  href={`https://mail.google.com/mail/u/0/#all/${email.messageId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-0.5 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  View in Gmail
+                </a>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
   )
 }

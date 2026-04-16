@@ -48,7 +48,7 @@ export async function isJobApplicationEmail(
         role: "user",
         content: `Is this email related to a job application? Consider: application confirmations,
 interview invitations, rejection notices, offer letters, recruiter outreach,
-background check requests, or any status update about a job application.
+background check requests, or any status update about a job application. Exclude generic newsletters, networking emails, job news, account created notifications, or unrelated subjects.
 
 From: ${from}
 Subject: ${subject}`
@@ -78,7 +78,7 @@ export async function parseJobEmail(
             "Use these status rules: APPLIED for application received or confirmed; " +
             "INTERVIEWING for interview scheduled, invited, or requested; " +
             "OFFER for job offer extended; REJECTED for application declined, position filled, or moved forward with other candidates. " +
-            "Lower confidence when the email is ambiguous."
+            "Lower confidence when the email is ambiguous, or this is not a job application email (including job news, account created notifications, generic newsletters)."
         },
         {
           role: "user",

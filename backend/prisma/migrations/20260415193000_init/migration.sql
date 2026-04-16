@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS "EmailAccount" (
   "calendarToken" TEXT,
   "calendarRefreshToken" TEXT,
   "lastSyncedAt" DATETIME,
+  "lastEmailDate" DATETIME,
   "syncEnabled" BOOLEAN NOT NULL DEFAULT 1,
   "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -92,3 +93,24 @@ ON "Interview" ("applicationId");
 
 CREATE INDEX IF NOT EXISTS "SyncJob_emailAccountId_idx"
 ON "SyncJob" ("emailAccountId");
+
+CREATE TABLE IF NOT EXISTS "ApplicationEmail" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "applicationId" TEXT NOT NULL,
+  "messageId" TEXT NOT NULL,
+  "subject" TEXT NOT NULL,
+  "receivedAt" DATETIME,
+  "provider" TEXT NOT NULL,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ApplicationEmail_applicationId_fkey"
+    FOREIGN KEY ("applicationId")
+    REFERENCES "Application" ("id")
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "ApplicationEmail_applicationId_messageId_key"
+ON "ApplicationEmail" ("applicationId", "messageId");
+
+CREATE INDEX IF NOT EXISTS "ApplicationEmail_messageId_idx"
+ON "ApplicationEmail" ("messageId");

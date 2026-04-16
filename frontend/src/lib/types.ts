@@ -28,6 +28,16 @@ export type Interview = {
   application?: Application
 }
 
+export type ApplicationEmail = {
+  id: string
+  applicationId: string
+  messageId: string
+  subject: string
+  receivedAt: string | null
+  provider: string
+  createdAt: string
+}
+
 export type Application = {
   id: string
   emailAccountId: string | null
@@ -43,6 +53,7 @@ export type Application = {
   createdAt: string
   emailAccount?: AccountSummary | null
   interviews: Interview[]
+  emailHistory?: ApplicationEmail[]
 }
 
 export type ApplicationsResponse = {

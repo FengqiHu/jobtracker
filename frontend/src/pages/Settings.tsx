@@ -89,7 +89,7 @@ export default function SettingsPage() {
   })
 
   const lowConfidenceMutation = useMutation({
-    mutationFn: () => clearLowConfidence(0.3),
+    mutationFn: () => clearLowConfidence(0.5),
     onSuccess: async (result) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["applications"] }),

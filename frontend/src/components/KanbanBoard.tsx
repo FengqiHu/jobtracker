@@ -28,19 +28,19 @@ export function KanbanBoard({
   onAddInterview
 }: Props) {
   return (
-    <div className="grid gap-4 xl:grid-cols-4">
+    <div className="grid gap-4 xl:grid-cols-4" style={{ height: "calc(100vh - 160px)" }}>
       {columns.map((column) => {
         const items = applications.filter((item) => item.status === column)
         return (
-          <div key={column} className="rounded-[18px] bg-[#fbfbfb] p-4 shadow-card">
-            <div className="mb-4 flex items-center justify-between">
+          <div key={column} className="flex flex-col rounded-[18px] bg-[#fbfbfb] p-4 shadow-card min-h-0">
+            <div className="mb-4 flex shrink-0 items-center justify-between">
               <StatusBadge status={column} />
               <span className="rounded-full bg-white px-3 py-1 text-xs font-medium shadow-card">
                 {items.length}
               </span>
             </div>
 
-            <div className="space-y-3">
+            <div className="min-h-0 flex-1 overflow-y-auto pr-0.5 space-y-3 scrollbar-thin">
               {items.map((application) => (
                 <button
                   key={application.id}
@@ -112,6 +112,7 @@ export function KanbanBoard({
               ) : null}
             </div>
           </div>
+
         )
       })}
     </div>

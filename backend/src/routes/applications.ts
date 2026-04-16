@@ -127,6 +127,11 @@ applicationRoutes.get("/applications/:id", async (req, res) => {
         orderBy: {
           scheduledAt: "asc"
         }
+      },
+      emailHistory: {
+        orderBy: {
+          receivedAt: "asc"
+        }
       }
     }
   })

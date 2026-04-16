@@ -24,6 +24,7 @@ import {
   getGmailConnectUrl,
   getOutlookConnectUrl,
   patchEmailAccount,
+  triggerFullSync,
   triggerSync
 } from "@/lib/api"
 import type { EmailAccountSummary } from "@/lib/types"
@@ -135,6 +136,20 @@ export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }
     onError: () => toast.error("Unable to trigger sync")
   })
 
+  const fullSyncMutation = useMutation({
+    mutationFn: triggerFullSync,
+    onSuccess: async () => {
+      await invalidateAll()
+      toast.success("Full re-sync started — scanning last 90 days")
+    },
+    onError: (err: unknown) => {
+      const msg = axios.isAxiosError(err) && err.response?.status === 409
+        ? "Sync already running"
+        : "Unable to trigger full sync"
+      toast.error(msg)
+    }
+  })
+
   const deleteMutation = useMutation({
     mutationFn: deleteEmailAccount,
     onSuccess: async () => {
@@ -228,6 +243,15 @@ export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }
                 >
                   <RefreshCw className="h-4 w-4" />
                   Sync now
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fullSyncMutation.mutate(account.id)}
+                  disabled={fullSyncMutation.isPending}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Full re-sync
                 </Button>
                 <Button
                   variant="ghost"
