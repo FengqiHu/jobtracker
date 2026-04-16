@@ -7,6 +7,7 @@ import * as gmailClient from "./gmailClient"
 import * as imapClient from "./imapClient"
 import * as microsoftClient from "./microsoftClient"
 import { decrypt } from "../lib/encryption"
+import { isJobRelatedEmail } from "../lib/emailFilter"
 
 const statusOrder: Record<ApplicationStatus, number> = {
   APPLIED: 1,
@@ -79,18 +80,24 @@ export async function syncAccount(
         ? new Date(
             Date.now() - (settings?.initialSyncDays ?? 90) * 24 * 60 * 60 * 1000
           )
-        : account.lastSyncedAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000)
+        : account.lastEmailDate ?? account.lastSyncedAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000)
 
     let totalEmails = 0
     let parsedEmails = 0
+    let latestEmailDate: Date | null = null
 
     const processParsedEmail = async (
       messageId: string,
       subject: string,
       from: string,
+      emailDate: Date | null,
       bodyLoader: () => Promise<string>
     ) => {
       totalEmails += 1
+
+      if (emailDate && (!latestEmailDate || emailDate > latestEmailDate)) {
+        latestEmailDate = emailDate
+      }
 
       const existing = await prisma.application.findFirst({
         where: {
@@ -103,8 +110,7 @@ export async function syncAccount(
         return
       }
 
-      const related = await aiParser.isJobApplicationEmail(subject, from)
-      if (!related) {
+      if (!isJobRelatedEmail(subject, from)) {
         return
       }
 
@@ -188,7 +194,8 @@ export async function syncAccount(
 
       for (const messageId of ids) {
         const meta = await gmailClient.getMessageMeta(auth, messageId)
-        await processParsedEmail(messageId, meta.subject, meta.from, () =>
+        const emailDate = meta.date ? new Date(meta.date) : null
+        await processParsedEmail(messageId, meta.subject, meta.from, emailDate, () =>
           gmailClient.getMessageBody(auth, messageId)
         )
       }
@@ -205,10 +212,12 @@ export async function syncAccount(
 
       const messages = await imapClient.listRecentMessages(config, sinceDate)
       for (const message of messages) {
+        const emailDate = message.date ? new Date(message.date) : null
         await processParsedEmail(
           String(message.uid),
           message.subject,
           message.from,
+          emailDate,
           () => imapClient.getMessageBody(config, message.uid)
         )
       }
@@ -218,10 +227,12 @@ export async function syncAccount(
       const config = await microsoftClient.getOutlookImapConfig(account)
       const messages = await imapClient.listRecentMessages(config, sinceDate)
       for (const message of messages) {
+        const emailDate = message.date ? new Date(message.date) : null
         await processParsedEmail(
           String(message.uid),
           message.subject,
           message.from,
+          emailDate,
           () => imapClient.getMessageBody(config, message.uid)
         )
       }
@@ -229,7 +240,10 @@ export async function syncAccount(
 
     await prisma.emailAccount.update({
       where: { id: account.id },
-      data: { lastSyncedAt: new Date() }
+      data: {
+        lastSyncedAt: new Date(),
+        ...(latestEmailDate ? { lastEmailDate: latestEmailDate } : {})
+      }
     })
 
     await prisma.syncJob.update({

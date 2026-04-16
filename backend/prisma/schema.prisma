@@ -24,6 +24,7 @@ model EmailAccount {
   calendarToken        String?
   calendarRefreshToken String?
   lastSyncedAt         DateTime?
+  lastEmailDate        DateTime?
   syncEnabled          Boolean       @default(true)
   createdAt            DateTime      @default(now())
   applications         Application[]

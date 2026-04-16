@@ -67,7 +67,10 @@ export default function CalendarPage() {
 
   const syncMutation = useMutation({
     mutationFn: (accountId: string) => triggerSync(accountId),
-    onSuccess: () => toast.success("Sync requested"),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["email-accounts"] })
+      toast.success("Sync requested")
+    },
     onError: () => toast.error("Unable to trigger sync")
   })
 
