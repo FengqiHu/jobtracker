@@ -36,7 +36,7 @@ export async function isJobApplicationEmail(
 ): Promise<boolean> {
   const client = getClient()
   const response = await client.responses.create({
-    model: "gpt-5.4-nano",
+    model: "gpt-5.4-mini",
     max_output_tokens: 16,
     input: [
       {
@@ -78,6 +78,7 @@ export async function parseJobEmail(
             "Use these status rules: APPLIED for application received or confirmed; " +
             "INTERVIEWING for interview scheduled, invited, or requested; " +
             "OFFER for job offer extended; REJECTED for application declined, position filled, or moved forward with other candidates. " +
+            "For appointment/calendar booking confirmation emails (e.g. 'Appointment booked:', 'Interview scheduled'), the company is the organization offering the job — not the interviewer's name, not the scheduling tool, and not the recipient's email address. Extract the company from the email body if it is not clear from the subject. " +
             "Lower confidence when the email is ambiguous, or this is not a job application email (including job news, account created notifications, generic newsletters)."
         },
         {

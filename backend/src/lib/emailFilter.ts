@@ -121,6 +121,8 @@ const ATS_SENDER_DOMAINS = [
   "jobvite.com", "successfactors.com", "ashbyhq.com", "breezy.hr",
   "recruitee.com", "workable.com", "teamtailor.com", "personio.com",
   "comeet.com", "pinpointhq.com", "rippling.com",
+  // College/early-career recruiting platforms
+  "handshake.com", "joinhandshake.com",
 ]
 
 const ATS_SENDER_PATTERNS = [

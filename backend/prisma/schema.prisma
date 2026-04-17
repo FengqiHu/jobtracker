@@ -26,47 +26,48 @@ model EmailAccount {
   lastSyncedAt         DateTime?
   syncEnabled          Boolean       @default(true)
   createdAt            DateTime      @default(now())
+  lastEmailDate        DateTime?
   applications         Application[]
   syncJobs             SyncJob[]
 }
 
 model Application {
-  id             String            @id @default(cuid())
+  id             String             @id @default(cuid())
   emailAccountId String?
-  emailAccount   EmailAccount?     @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
   company        String
   role           String
-  status         ApplicationStatus @default(APPLIED)
-  emailMessageId String?           // first/primary email that created this record (legacy)
+  status         ApplicationStatus  @default("APPLIED")
+  emailMessageId String?
   emailSubject   String?
   aiConfidence   Float?
   notes          String?
   appliedAt      DateTime?
-  updatedAt      DateTime          @updatedAt
-  createdAt      DateTime          @default(now())
-  interviews     Interview[]
+  updatedAt      DateTime           @default(now()) @updatedAt
+  createdAt      DateTime           @default(now())
+  emailAccount   EmailAccount?      @relation(fields: [emailAccountId], references: [id])
   emailHistory   ApplicationEmail[]
+  interviews     Interview[]
 
   @@unique([emailAccountId, emailMessageId])
 }
 
 model ApplicationEmail {
-  id            String       @id @default(cuid())
+  id            String      @id @default(cuid())
   applicationId String
-  application   Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   messageId     String
   subject       String
   receivedAt    DateTime?
-  provider      String       // "gmail" | "imap" | "outlook"
-  createdAt     DateTime     @default(now())
+  provider      String
+  createdAt     DateTime    @default(now())
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, messageId])
+  @@index([messageId])
 }
 
 model Interview {
   id              String      @id @default(cuid())
   applicationId   String
-  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   title           String
   scheduledAt     DateTime
   durationMinutes Int         @default(60)
@@ -74,28 +75,33 @@ model Interview {
   calendarEventId String?
   notes           String?
   createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  updatedAt       DateTime    @default(now()) @updatedAt
+  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
 }
 
 model SyncJob {
   id             String       @id @default(cuid())
   emailAccountId String
-  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
   type           String
-  status         SyncStatus   @default(PENDING)
+  status         SyncStatus   @default("PENDING")
   totalEmails    Int?
   parsedEmails   Int?
   errorMessage   String?
   startedAt      DateTime?
   completedAt    DateTime?
   createdAt      DateTime     @default(now())
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+
+  @@index([emailAccountId])
 }
 
 model AppSettings {
   id                  String @id @default("singleton")
   syncIntervalMinutes Int    @default(15)
   initialSyncDays     Int    @default(90)
-  aiModel             String @default("gpt-5.4-mini")
+  aiModel             String @default("claude-sonnet-4-20250514")
 }
 
 enum ApplicationStatus {

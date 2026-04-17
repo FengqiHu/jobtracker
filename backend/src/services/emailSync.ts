@@ -64,12 +64,62 @@ function isGenericRole(role: string): boolean {
 }
 
 /**
+ * Subject patterns that indicate a calendar booking confirmation (not the original invite).
+ * e.g. "Appointment booked: AI Dev Technical Interview with Israel @ Thu Apr 23..."
+ */
+const APPOINTMENT_SUBJECT_PATTERNS = [
+  /^appointment\s+booked/i,
+  /^appointment\s+confirmed/i,
+  /^appointment\s+rescheduled/i,
+  /^your\s+appointment/i,
+  /^interview\s+scheduled/i,
+  /\byour\s+interview\s+is\s+scheduled\b/i,
+  /\bhas\s+been\s+scheduled\b/i,
+  /^calendar\s+invite/i,
+]
+
+function isAppointmentConfirmation(subject: string): boolean {
+  return APPOINTMENT_SUBJECT_PATTERNS.some((p) => p.test(subject))
+}
+
+/**
+ * Fall-back matcher for appointment confirmation emails where the AI may have
+ * extracted the interviewer's name instead of the company name.
+ * Looks for an existing interview within a 24-hour window of the parsed date.
+ */
+async function findApplicationByInterviewDate(
+  emailAccountId: string,
+  interviewDateIso: string
+): Promise<Application | null> {
+  const scheduledAt = new Date(interviewDateIso)
+  if (isNaN(scheduledAt.getTime())) return null
+
+  const nearby = await prisma.interview.findFirst({
+    where: {
+      application: { emailAccountId },
+      scheduledAt: {
+        gte: new Date(scheduledAt.getTime() - 24 * 60 * 60 * 1000),
+        lte: new Date(scheduledAt.getTime() + 24 * 60 * 60 * 1000)
+      }
+    },
+    include: { application: true }
+  })
+
+  return nearby?.application ?? null
+}
+
+/**
  * Find the best matching existing Application for a newly parsed email.
  *
  * Matching strategy:
  *  1. Exact: same account + normalized company + normalized role
- *  2. Rejection fallback: if role is generic OR there is exactly one non-rejected
- *     application at that company → pick the most recently updated one
+ *  2. Rejection fallback: if role is generic OR single match at company → use it
+ *  3. Single active application at company: different emails in the same flow often
+ *     describe the role differently ("Engineering" vs "Full-Stack Engineer, Backend /
+ *     Integrations Engineer") — when only one non-rejected application exists at the
+ *     company, link to it rather than creating a duplicate.
+ *  4. Role keyword overlap: when multiple active applications exist at the company,
+ *     pick the one whose role shares the most words with the parsed role.
  */
 async function findMatchingApplication(
   emailAccountId: string,
@@ -99,17 +149,38 @@ async function findMatchingApplication(
 
   // 2. Rejection fallback
   if (status === "REJECTED") {
-    // Generic role from AI means the email didn't mention the role explicitly
     if (isGenericRole(role)) {
-      // Prefer a non-rejected application; if none, take the most recent
       const nonRejected = companyMatches.filter((app) => app.status !== "REJECTED")
       return nonRejected.length > 0 ? nonRejected[0] : companyMatches[0]
     }
-
-    // Multiple applications at the company — pick most recent non-rejected
     if (companyMatches.length === 1) return companyMatches[0]
     const nonRejected = companyMatches.filter((app) => app.status !== "REJECTED")
     return nonRejected.length > 0 ? nonRejected[0] : companyMatches[0]
+  }
+
+  const activeApps = companyMatches.filter(
+    (app) => app.status !== "REJECTED" && app.status !== "WITHDRAWN"
+  )
+
+  // 3. Single active application at company — different emails in the same hiring
+  //    flow often use different role names; collapse them into one record.
+  if (activeApps.length === 1) return activeApps[0]
+
+  // 4. Role keyword overlap among multiple active applications.
+  //    Use words of ≥4 characters to avoid matching on filler words.
+  if (activeApps.length > 1 && normalizedRole.length > 0) {
+    const queryWords = normalizedRole.split(" ").filter((w) => w.length >= 4)
+    if (queryWords.length > 0) {
+      const ranked = activeApps
+        .map((app) => {
+          const appRole = normalizeForMatch(app.role)
+          const overlap = queryWords.filter((w) => appRole.includes(w)).length
+          return { app, overlap }
+        })
+        .filter(({ overlap }) => overlap > 0)
+        .sort((a, b) => b.overlap - a.overlap)
+      if (ranked.length > 0) return ranked[0].app
+    }
   }
 
   return null
@@ -226,12 +297,30 @@ export async function syncAccount(
       parsedEmails += 1
 
       // Find an existing application this email belongs to
-      const matchedApp = await findMatchingApplication(
+      let matchedApp = await findMatchingApplication(
         account.id,
         parsed.company,
         parsed.role,
         parsed.status
       )
+
+      // Appointment confirmation emails (e.g. "Appointment booked: ...") often have
+      // the interviewer's name extracted as the company. Fall back to matching by
+      // interview date so they link to the right application instead of creating a new one.
+      if (
+        !matchedApp &&
+        parsed.status === "INTERVIEWING" &&
+        parsed.interviewDate &&
+        isAppointmentConfirmation(subject)
+      ) {
+        matchedApp = await findApplicationByInterviewDate(account.id, parsed.interviewDate)
+        if (matchedApp) {
+          logger.debug(
+            { accountId, messageId, appId: matchedApp.id },
+            "Appointment confirmation linked to existing application via interview date"
+          )
+        }
+      }
 
       let targetAppId: string
 
