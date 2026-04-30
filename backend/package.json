@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "prebuild": "prisma generate",
     "build": "tsc",
-    "start": "node --experimental-strip-types prisma/migrate.ts && node dist/index.js",
+    "start": "npx prisma db push --skip-generate && node dist/index.js",
     "db:migrate": "node --experimental-strip-types prisma/migrate.ts",
     "db:generate": "prisma generate",
     "db:seed": "node --experimental-strip-types prisma/seed.ts",
