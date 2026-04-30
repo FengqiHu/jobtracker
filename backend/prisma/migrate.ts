@@ -5,7 +5,12 @@ import { fileURLToPath } from "url"
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(currentDir, "..")
-const dbPath = path.resolve(root, "data/jobtracker.db")
+
+// DATABASE_URL takes precedence (production), otherwise use local default
+const databaseUrl = process.env.DATABASE_URL || `file:${path.resolve(root, "data/jobtracker.db")}`
+const dbPath = databaseUrl.startsWith("file:")
+  ? path.resolve(databaseUrl.slice(5))
+  : path.resolve(root, "data/jobtracker.db")
 const migrationPath = path.resolve(
   currentDir,
   "migrations/20260415193000_init/migration.sql"
