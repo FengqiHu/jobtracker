@@ -15,7 +15,7 @@ import type {
 export const TOKEN_KEY = "job_tracker_token"
 
 const api = axios.create({
-  baseURL: "/api"
+  baseURL: import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : "/api"
 })
 
 api.interceptors.request.use((config) => {
