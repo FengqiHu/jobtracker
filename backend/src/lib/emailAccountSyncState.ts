@@ -4,6 +4,69 @@ type TableInfoRow = {
   name: string
 }
 
+// ─── ApplicationEmail.emailAccountId ─────────────────────────────────────────
+// Tracks which email account fetched a given message, independent of which
+// Application it was linked to. This is necessary for correct deduplication
+// when the AI cross-account matcher links an email from account B to an
+// Application that belongs to account A — without this field, the next sync
+// of account B would not find the existing record and reprocess the message.
+
+let ensureApplicationEmailAccountIdPromise: Promise<void> | null = null
+
+async function ensureApplicationEmailAccountIdInternal() {
+  const columns = await prisma.$queryRawUnsafe<TableInfoRow[]>(
+    'PRAGMA table_info("ApplicationEmail")'
+  )
+  if (columns.some((c) => c.name === "emailAccountId")) return
+
+  try {
+    await prisma.$executeRawUnsafe(
+      'ALTER TABLE "ApplicationEmail" ADD COLUMN "emailAccountId" TEXT'
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!message.includes("duplicate column name")) throw error
+  }
+}
+
+export async function ensureApplicationEmailSchema() {
+  if (!ensureApplicationEmailAccountIdPromise) {
+    ensureApplicationEmailAccountIdPromise =
+      ensureApplicationEmailAccountIdInternal().catch((error) => {
+        ensureApplicationEmailAccountIdPromise = null
+        throw error
+      })
+  }
+  await ensureApplicationEmailAccountIdPromise
+}
+
+/** Returns true if this (messageId, emailAccountId) pair has already been processed. */
+export async function isMessageAlreadyProcessed(
+  emailAccountId: string,
+  messageId: string
+): Promise<boolean> {
+  await ensureApplicationEmailSchema()
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "ApplicationEmail"
+    WHERE "messageId" = ${messageId} AND "emailAccountId" = ${emailAccountId}
+    LIMIT 1
+  `
+  return rows.length > 0
+}
+
+/** Stamps the originating email account on an ApplicationEmail record. */
+export async function stampApplicationEmailAccount(
+  applicationEmailId: string,
+  emailAccountId: string
+): Promise<void> {
+  await ensureApplicationEmailSchema()
+  await prisma.$executeRaw`
+    UPDATE "ApplicationEmail"
+    SET "emailAccountId" = ${emailAccountId}
+    WHERE "id" = ${applicationEmailId}
+  `
+}
+
 type LastEmailDateRow = {
   lastEmailDate: Date | string | null
 }

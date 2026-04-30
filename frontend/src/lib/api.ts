@@ -12,9 +12,74 @@ import type {
   SyncStatusRecord
 } from "./types"
 
+export const TOKEN_KEY = "job_tracker_token"
+
 const api = axios.create({
   baseURL: "/api"
 })
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && !window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/register")) {
+      localStorage.removeItem(TOKEN_KEY)
+      window.location.href = "/login"
+    }
+    return Promise.reject(error)
+  }
+)
+
+export interface AuthUser {
+  id: string
+  username: string | null
+  name: string
+  email: string | null
+  hasPassword: boolean
+  googleLinked: boolean
+}
+
+export function login(username: string, password: string) {
+  return api
+    .post<{ token: string; user: AuthUser }>("/auth/login", { username, password })
+    .then((r) => r.data)
+}
+
+export function register(username: string, name: string, password: string) {
+  return api
+    .post<{ token: string; user: AuthUser }>("/auth/register", { username, name, password })
+    .then((r) => r.data)
+}
+
+export function getGoogleAuthUrl() {
+  return api.get<{ authUrl: string }>("/auth/google/url").then((r) => r.data)
+}
+
+export function exchangeGoogleUserCode(code: string) {
+  return api
+    .post<{ token: string; user: AuthUser; usernameRequired: boolean }>(
+      "/auth/google/exchange",
+      { code }
+    )
+    .then((r) => r.data)
+}
+
+export function setUsername(username: string) {
+  return api
+    .patch<{ token: string; user: AuthUser }>("/auth/username", { username })
+    .then((r) => r.data)
+}
+
+export function getMe() {
+  return api.get<AuthUser>("/auth/me").then((r) => r.data)
+}
 
 export function getApplications(params: ApplicationFilters) {
   return api

@@ -8,7 +8,9 @@ import { URLSearchParams } from "url"
 import "./lib/env"
 
 import { logger } from "./lib/logger"
+import { authenticate } from "./middleware/authenticate"
 import { applicationRoutes } from "./routes/applications"
+import { authRoutes } from "./routes/auth"
 import { emailAccountRoutes } from "./routes/emailAccounts"
 import { interviewRoutes } from "./routes/interviews"
 import { settingsRoutes } from "./routes/settings"
@@ -28,6 +30,9 @@ export function createApp() {
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true })
   })
+
+  // Public auth routes (no token required)
+  app.use("/api", authRoutes)
 
   const forwardOAuthCallback =
     (callbackPath: string) => (req: express.Request, res: express.Response) => {
@@ -51,11 +56,15 @@ export function createApp() {
     }
 
   app.get("/auth/google/callback", forwardOAuthCallback("/auth/google/callback"))
+  app.get("/auth/microsoft/callback", forwardOAuthCallback("/auth/microsoft/callback"))
+  // User-login Google OAuth callback (different from Gmail-sync callback)
   app.get(
-    "/auth/microsoft/callback",
-    forwardOAuthCallback("/auth/microsoft/callback")
+    "/auth/user/google/callback",
+    forwardOAuthCallback("/auth/user/google/callback")
   )
 
+  // All routes below require a valid JWT
+  app.use("/api", authenticate)
   app.use("/api", emailAccountRoutes)
   app.use("/api", applicationRoutes)
   app.use("/api", interviewRoutes)

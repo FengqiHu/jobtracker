@@ -58,16 +58,20 @@ async function queueInitialSync(accountId: string) {
   })
 }
 
-async function upsertOAuthAccount(data: {
-  provider: string
-  label: string
-  email: string
-  accessToken: string
-  refreshToken?: string | null
-  expiresAt?: Date | null
-}) {
+async function upsertOAuthAccount(
+  userId: string,
+  data: {
+    provider: string
+    label: string
+    email: string
+    accessToken: string
+    refreshToken?: string | null
+    expiresAt?: Date | null
+  }
+) {
   const existing = await prisma.emailAccount.findFirst({
     where: {
+      userId,
       provider: data.provider,
       email: data.email
     }
@@ -88,6 +92,7 @@ async function upsertOAuthAccount(data: {
 
   return prisma.emailAccount.create({
     data: {
+      userId,
       provider: data.provider,
       label: data.label,
       email: data.email,
@@ -98,9 +103,9 @@ async function upsertOAuthAccount(data: {
   })
 }
 
-async function connectGmailAccount(code: string) {
+async function connectGmailAccount(userId: string, code: string) {
   const tokens = await exchangeCodeForTokens(code)
-  const account = await upsertOAuthAccount({
+  const account = await upsertOAuthAccount(userId, {
     provider: "gmail",
     label: tokens.email,
     email: tokens.email,
@@ -114,7 +119,7 @@ async function connectGmailAccount(code: string) {
   return serializeAccountSummary(account)
 }
 
-async function connectOutlookAccount(code: string) {
+async function connectOutlookAccount(userId: string, code: string) {
   const tokens = await exchangeOutlookCodeForTokens(code)
   const validation = await testImapConnection({
     host: "outlook.office365.com",
@@ -131,7 +136,7 @@ async function connectOutlookAccount(code: string) {
     )
   }
 
-  const account = await upsertOAuthAccount({
+  const account = await upsertOAuthAccount(userId, {
     provider: "outlook",
     label: tokens.label,
     email: tokens.email,
@@ -145,8 +150,9 @@ async function connectOutlookAccount(code: string) {
   return serializeAccountSummary(account)
 }
 
-emailAccountRoutes.get("/email-accounts", async (_req, res) => {
+emailAccountRoutes.get("/email-accounts", async (req, res) => {
   const accounts = await prisma.emailAccount.findMany({
+    where: { userId: req.user!.id },
     orderBy: {
       createdAt: "asc"
     }
@@ -205,7 +211,7 @@ emailAccountRoutes.post("/email-accounts/gmail/exchange", async (req, res) => {
     return res.status(400).json({ message: "Missing Google OAuth code" })
   }
 
-  const account = await connectGmailAccount(code)
+  const account = await connectGmailAccount(req.user!.id, code)
   return res.status(201).json(account)
 })
 
@@ -216,7 +222,7 @@ emailAccountRoutes.post("/email-accounts/outlook/exchange", async (req, res) => 
   }
 
   try {
-    const account = await connectOutlookAccount(code)
+    const account = await connectOutlookAccount(req.user!.id, code)
     return res.status(201).json(account)
   } catch (error) {
     return res.status(400).json({
@@ -225,15 +231,6 @@ emailAccountRoutes.post("/email-accounts/outlook/exchange", async (req, res) => 
   }
 })
 
-emailAccountRoutes.get("/email-accounts/gmail/callback", async (req, res) => {
-  const code = String(req.query.code ?? "")
-  if (!code) {
-    return res.redirect(frontendUrl("/settings?connected=gmail-error"))
-  }
-
-  await connectGmailAccount(code)
-  return res.redirect(frontendUrl("/settings?connected=gmail"))
-})
 
 emailAccountRoutes.post("/email-accounts/imap", async (req, res) => {
   const config = {
@@ -253,6 +250,7 @@ emailAccountRoutes.post("/email-accounts/imap", async (req, res) => {
 
   const account = await prisma.emailAccount.create({
     data: {
+      userId: req.user!.id,
       provider: "imap",
       label: req.body.label,
       email: req.body.user,

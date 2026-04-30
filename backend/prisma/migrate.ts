@@ -29,6 +29,45 @@ if (!emailAccountColumns.includes("|lastEmailDate|")) {
   })
 }
 
+// Recreate User table with updated schema (username-based, Google OAuth support)
+const userColumns = execFileSync("sqlite3", [dbPath, 'PRAGMA table_info("User");'], {
+  encoding: "utf8"
+})
+
+if (!userColumns.includes("|username|")) {
+  // Drop and recreate — safe because no users can exist if username column is missing
+  execFileSync("sqlite3", [dbPath, `
+    DROP TABLE IF EXISTS "User";
+    CREATE TABLE "User" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "username" TEXT UNIQUE,
+      "name" TEXT NOT NULL,
+      "email" TEXT UNIQUE,
+      "googleId" TEXT UNIQUE,
+      "passwordHash" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `], { stdio: ["ignore", "inherit", "inherit"] })
+}
+
+// Add userId to EmailAccount
+if (!emailAccountColumns.includes("|userId|")) {
+  execFileSync("sqlite3", [dbPath, 'ALTER TABLE "EmailAccount" ADD COLUMN "userId" TEXT REFERENCES "User"("id") ON DELETE SET NULL'], {
+    stdio: ["ignore", "inherit", "inherit"]
+  })
+}
+
+// Add userId to Application
+const applicationColumns = execFileSync("sqlite3", [dbPath, 'PRAGMA table_info("Application");'], {
+  encoding: "utf8"
+})
+
+if (!applicationColumns.includes("|userId|")) {
+  execFileSync("sqlite3", [dbPath, 'ALTER TABLE "Application" ADD COLUMN "userId" TEXT REFERENCES "User"("id") ON DELETE SET NULL'], {
+    stdio: ["ignore", "inherit", "inherit"]
+  })
+}
+
 // Migrate existing Application.emailMessageId records into ApplicationEmail
 // Uses a SQL trick to generate unique IDs without external libs
 execFileSync("sqlite3", [dbPath, `

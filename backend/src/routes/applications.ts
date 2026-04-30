@@ -36,7 +36,10 @@ applicationRoutes.get("/applications", async (req, res) => {
   const search = String(req.query.search ?? "").trim()
   const accountId = String(req.query.accountId ?? "").trim()
 
+  const userId = req.user!.id
+
   const where = {
+    userId,
     ...(statuses ? { status: { in: statuses } } : {}),
     ...(accountId ? { emailAccountId: accountId } : {}),
     ...(search
@@ -84,10 +87,13 @@ applicationRoutes.get("/applications", async (req, res) => {
   res.json({ data, total, page })
 })
 
-applicationRoutes.get("/applications/stats", async (_req, res) => {
+applicationRoutes.get("/applications/stats", async (req, res) => {
+  const userId = req.user!.id
+
   const [applications] = await Promise.all([
     prisma.application.groupBy({
       by: ["status"],
+      where: { userId },
       _count: {
         status: true
       }
@@ -146,6 +152,7 @@ applicationRoutes.get("/applications/:id", async (req, res) => {
 applicationRoutes.post("/applications", async (req, res) => {
   const application = await prisma.application.create({
     data: {
+      userId: req.user!.id,
       company: req.body.company,
       role: req.body.role,
       status: req.body.status ?? "APPLIED",

@@ -4,6 +4,8 @@ import { prisma } from "../lib/prisma"
 import { logger } from "../lib/logger"
 import {
   getEmailAccountLastEmailDate,
+  isMessageAlreadyProcessed,
+  stampApplicationEmailAccount,
   updateEmailAccountSyncState
 } from "../lib/emailAccountSyncState"
 import * as aiParser from "./aiParser"
@@ -264,11 +266,11 @@ export async function syncAccount(
         latestEmailDate = emailDate
       }
 
-      // Dedup: has this message already been processed for any application on this account?
-      const existingEmailRecord = await prisma.applicationEmail.findFirst({
-        where: { messageId, application: { emailAccountId: account.id } }
-      })
-      if (existingEmailRecord) return
+      // Dedup: has this exact message (identified by account + messageId) already been
+      // processed? We track the originating account directly on ApplicationEmail so
+      // that cross-account matches (email from Outlook linked to a Gmail Application)
+      // are still correctly skipped on the next sync of the Outlook account.
+      if (await isMessageAlreadyProcessed(account.id, messageId)) return
 
       // Legacy dedup for applications created before ApplicationEmail was introduced
       const legacyRecord = await prisma.application.findFirst({
@@ -322,6 +324,54 @@ export async function syncAccount(
         }
       }
 
+      // AI matching: when heuristics fail, ask the AI whether the new email belongs
+      // to an existing application flow within the same account. Cross-account matching
+      // is intentionally excluded — a Gmail application and an Outlook application are
+      // separate tracking contexts even if they share a company name.
+      if (!matchedApp) {
+        const allActiveAtCompany = await prisma.application
+          .findMany({
+            where: {
+              emailAccountId: account.id,
+              status: { notIn: ["REJECTED", "WITHDRAWN"] }
+            },
+            include: {
+              emailHistory: {
+                select: { subject: true },
+                orderBy: { receivedAt: "desc" },
+                take: 5
+              }
+            }
+          })
+          .then((apps) =>
+            apps.filter(
+              (app) =>
+                normalizeForMatch(app.company) === normalizeForMatch(parsed.company) &&
+                app.emailHistory.length > 0
+            )
+          )
+
+        if (allActiveAtCompany.length > 0) {
+          const matchedId = await aiParser.matchEmailToApplication(
+            { subject, from, bodySnippet: body },
+            allActiveAtCompany.map((app) => ({
+              id: app.id,
+              role: app.role,
+              recentSubjects: app.emailHistory.map((e) => e.subject)
+            }))
+          )
+          if (matchedId) {
+            matchedApp = allActiveAtCompany.find((app) => app.id === matchedId) ?? null
+            if (matchedApp) {
+              logger.debug(
+                { accountId, messageId, appId: matchedApp.id },
+                "AI cross-account matcher linked email to existing application"
+              )
+            }
+          }
+        }
+      }
+
       let targetAppId: string
 
       if (matchedApp) {
@@ -344,6 +394,7 @@ export async function syncAccount(
         // No matching application — create a new one
         const newApp = await prisma.application.create({
           data: {
+            userId: account.userId ?? undefined,
             emailAccountId: account.id,
             company: parsed.company,
             role: parsed.role,
@@ -357,8 +408,10 @@ export async function syncAccount(
         targetAppId = newApp.id
       }
 
-      // Record this email in the application's history
-      await prisma.applicationEmail.create({
+      // Record this email in the application's history.
+      // Stamp the originating email account so dedup works correctly even when
+      // this email was cross-account matched to an Application from a different account.
+      const applicationEmail = await prisma.applicationEmail.create({
         data: {
           applicationId: targetAppId,
           messageId,
@@ -367,6 +420,7 @@ export async function syncAccount(
           provider: account.provider
         }
       })
+      await stampApplicationEmailAccount(applicationEmail.id, account.id)
 
       // Create an interview record if the email contains a scheduled date
       if (parsed.status === "INTERVIEWING" && parsed.interviewDate) {
