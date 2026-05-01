@@ -7,7 +7,8 @@ import {
   getMe,
   login as apiLogin,
   register as apiRegister,
-  setUsername as apiSetUsername
+  setUsername as apiSetUsername,
+  updateProfile as apiUpdateProfile
 } from "@/lib/api"
 
 interface AuthContextValue {
@@ -17,6 +18,7 @@ interface AuthContextValue {
   register: (username: string, name: string, password: string) => Promise<void>
   loginWithGoogleCode: (code: string) => Promise<{ usernameRequired: boolean }>
   setUsername: (username: string) => Promise<void>
+  updateProfile: (body: { name?: string; username?: string }) => Promise<void>
   logout: () => void
 }
 
@@ -63,6 +65,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(user)
   }
 
+  const updateProfile = async (body: { name?: string; username?: string }) => {
+    const { token, user } = await apiUpdateProfile(body)
+    localStorage.setItem(TOKEN_KEY, token)
+    setUser(user)
+  }
+
   const logout = () => {
     localStorage.removeItem(TOKEN_KEY)
     setUser(null)
@@ -70,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, login, register, loginWithGoogleCode, setUsername, logout }}
+      value={{ user, isLoading, login, register, loginWithGoogleCode, setUsername, updateProfile, logout }}
     >
       {children}
     </AuthContext.Provider>

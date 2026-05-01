@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { useAuth } from "@/context/AuthContext"
 import { MailboxManager } from "@/components/MailboxManager"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,7 +24,136 @@ import {
   SelectValue
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { clearData, clearLowConfidence, getEmailAccounts, getSettings, patchSettings } from "@/lib/api"
+import { changePassword, clearData, clearLowConfidence, getEmailAccounts, getSettings, patchSettings } from "@/lib/api"
+
+function AccountTab() {
+  const { user, updateProfile } = useAuth()
+
+  const [name, setName] = useState(user?.name ?? "")
+  const [username, setUsername] = useState(user?.username ?? "")
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+
+  const profileMutation = useMutation({
+    mutationFn: () => updateProfile({ name, username }),
+    onSuccess: () => toast.success("Profile updated"),
+    onError: (err: { response?: { data?: { message?: string } } }) =>
+      toast.error(err?.response?.data?.message ?? "Failed to update profile")
+  })
+
+  const passwordMutation = useMutation({
+    mutationFn: () =>
+      changePassword({
+        ...(user?.hasPassword ? { currentPassword } : {}),
+        newPassword
+      }),
+    onSuccess: () => {
+      toast.success("Password updated")
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) =>
+      toast.error(err?.response?.data?.message ?? "Failed to update password")
+  })
+
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match")
+      return
+    }
+    passwordMutation.mutate()
+  }
+
+  const profileDirty = name !== (user?.name ?? "") || username !== (user?.username ?? "")
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Profile</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="display-name">Display name</Label>
+            <Input
+              id="display-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="username">Username</Label>
+            <Input
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="username"
+            />
+          </div>
+          <Button
+            onClick={() => profileMutation.mutate()}
+            disabled={!profileDirty || profileMutation.isPending}
+          >
+            {profileMutation.isPending ? "Saving…" : "Save changes"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{user?.hasPassword ? "Change password" : "Set a password"}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handlePasswordSubmit} className="space-y-4">
+            {user?.hasPassword && (
+              <div className="space-y-1.5">
+                <Label htmlFor="current-password">Current password</Label>
+                <Input
+                  id="current-password"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="new-password">New password</Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                minLength={6}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="confirm-password">Confirm new password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+              />
+            </div>
+            <Button type="submit" disabled={passwordMutation.isPending}>
+              {passwordMutation.isPending ? "Saving…" : user?.hasPassword ? "Update password" : "Set password"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
@@ -116,10 +246,15 @@ export default function SettingsPage() {
         <TabsList>
           <TabsTrigger value="accounts">Email Accounts</TabsTrigger>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
+          <TabsTrigger value="account">Account</TabsTrigger>
         </TabsList>
 
         <TabsContent value="accounts" className="space-y-4">
           <MailboxManager accounts={accountsQuery.data ?? []} />
+        </TabsContent>
+
+        <TabsContent value="account">
+          <AccountTab />
         </TabsContent>
 
         <TabsContent value="preferences" className="space-y-6">

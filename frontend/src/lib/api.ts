@@ -81,6 +81,16 @@ export function getMe() {
   return api.get<AuthUser>("/auth/me").then((r) => r.data)
 }
 
+export function updateProfile(body: { name?: string; username?: string }) {
+  return api
+    .patch<{ token: string; user: AuthUser }>("/auth/profile", body)
+    .then((r) => r.data)
+}
+
+export function changePassword(body: { currentPassword?: string; newPassword: string }) {
+  return api.patch<{ message: string }>("/auth/password", body).then((r) => r.data)
+}
+
 export function getApplications(params: ApplicationFilters) {
   return api
     .get<ApplicationsResponse>("/applications", { params })

@@ -179,3 +179,59 @@ authRoutes.get("/auth/me", authenticate, async (req, res) => {
   if (!user) return res.status(404).json({ message: "User not found" })
   return res.json({ ...publicUser(user), hasPassword: !!user.passwordHash })
 })
+
+// ── Update profile (name + username) ─────────────────────────────────────────
+authRoutes.patch("/auth/profile", authenticate, async (req, res) => {
+  const { name, username } = req.body as Record<string, string>
+
+  if (name !== undefined && !name.trim()) {
+    return res.status(400).json({ message: "Display name cannot be empty" })
+  }
+  if (username !== undefined) {
+    if (username.trim().length < 3) {
+      return res.status(400).json({ message: "Username must be at least 3 characters" })
+    }
+    const taken = await prisma.user.findUnique({ where: { username: username.trim() } })
+    if (taken && taken.id !== req.user!.id) {
+      return res.status(409).json({ message: "Username is already taken" })
+    }
+  }
+
+  const user = await prisma.user.update({
+    where: { id: req.user!.id },
+    data: {
+      ...(name !== undefined ? { name: name.trim() } : {}),
+      ...(username !== undefined ? { username: username.trim() } : {})
+    }
+  })
+
+  const token = signToken(userPayload(user))
+  return res.json({ token, user: { ...publicUser(user), hasPassword: !!user.passwordHash } })
+})
+
+// ── Change / set password ─────────────────────────────────────────────────────
+authRoutes.patch("/auth/password", authenticate, async (req, res) => {
+  const { currentPassword, newPassword } = req.body as Record<string, string>
+
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ message: "New password must be at least 6 characters" })
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: req.user!.id } })
+  if (!user) return res.status(404).json({ message: "User not found" })
+
+  if (user.passwordHash) {
+    if (!currentPassword) {
+      return res.status(400).json({ message: "Current password is required" })
+    }
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash)
+    if (!valid) {
+      return res.status(401).json({ message: "Current password is incorrect" })
+    }
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12)
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
+
+  return res.json({ message: "Password updated" })
+})
