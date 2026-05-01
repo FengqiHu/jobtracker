@@ -7,6 +7,7 @@ import Applications from "@/pages/Applications"
 import CalendarPage from "@/pages/Calendar"
 import Dashboard from "@/pages/Dashboard"
 import GoogleOAuthCallback from "@/pages/GoogleOAuthCallback"
+import Landing from "@/pages/Landing"
 import Login from "@/pages/Login"
 import Register from "@/pages/Register"
 import SettingsPage from "@/pages/Settings"
@@ -39,6 +40,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* Public routes */}
+        <Route path="/" element={<LandingOrDashboard />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
@@ -86,6 +88,21 @@ export default function App() {
       </Routes>
     </BrowserRouter>
   )
+}
+
+// Show the landing page to visitors; redirect logged-in users straight to the app
+function LandingOrDashboard() {
+  const { user, isLoading } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#242424] border-t-transparent" />
+      </div>
+    )
+  }
+
+  return user ? <Navigate to="/dashboard" replace /> : <Landing />
 }
 
 // Separate guard for setup-username — needs a valid JWT but allows null username
