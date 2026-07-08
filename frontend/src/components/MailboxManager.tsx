@@ -199,6 +199,12 @@ export function MailboxManager({ accounts }: { accounts: EmailAccountSummary[] }
               </div>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+              {account.latestSync?.status === "FAILED" && account.latestSync.errorMessage ? (
+                <div className="rounded-[12px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">
+                  <span className="font-medium">Last sync failed: </span>
+                  {account.latestSync.errorMessage}
+                </div>
+              ) : null}
               <div className="grid gap-3 text-sm text-[#898989] md:grid-cols-3">
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em]">Provider</p>

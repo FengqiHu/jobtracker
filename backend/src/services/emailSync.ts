@@ -44,6 +44,44 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * Translate raw provider/API errors into a message the user can act on.
+ * The raw error is still logged; only the stored SyncJob.errorMessage is friendly.
+ */
+function toFriendlyErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  const lower = raw.toLowerCase()
+
+  if (raw === "Sync cancelled by user") return raw
+
+  if (lower.includes("invalid_grant") || lower.includes("token has been expired or revoked")) {
+    return "Google authorization expired — reconnect this account from Settings."
+  }
+  if (raw.includes("AADSTS") || lower.includes("refresh token")) {
+    return "Mailbox authorization expired — reconnect this account from Settings."
+  }
+  if (/authenticat|invalid credentials|login failed|auth failed/i.test(raw)) {
+    return "Email sign-in failed — check the IMAP username and password (or app password)."
+  }
+  if (/enotfound|econnrefused|etimedout|eai_again|econnreset|network/i.test(raw)) {
+    return "Could not reach the mail server — check your network connection and host settings."
+  }
+  if (raw.includes("OPENAI_API_KEY")) {
+    return "AI parsing is not configured — set OPENAI_API_KEY in the server environment."
+  }
+  if (lower.includes("incorrect api key") || lower.includes("invalid api key") || raw.includes("401")) {
+    return "The AI API key was rejected — check OPENAI_API_KEY."
+  }
+  if (lower.includes("rate limit") || raw.includes("429")) {
+    return "AI rate limit reached — the next scheduled sync will retry automatically."
+  }
+  if (lower.includes("quota") || lower.includes("insufficient_quota")) {
+    return "AI API quota exhausted — check your OpenAI billing."
+  }
+
+  return raw
+}
+
 /** Normalize a string for fuzzy matching: lowercase, collapse whitespace, strip punctuation */
 function normalizeForMatch(s: string): string {
   return s
@@ -52,6 +90,39 @@ function normalizeForMatch(s: string): string {
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+/** Trailing legal/organizational suffixes that vary across emails from the same employer */
+const COMPANY_SUFFIXES = new Set([
+  "inc", "incorporated", "llc", "ltd", "limited", "corp", "corporation",
+  "co", "company", "gmbh", "plc", "sa", "srl", "bv", "ag", "pty", "pte",
+  "group", "holdings", "careers", "team", "recruiting", "talent"
+])
+
+/**
+ * Normalize a company name for matching: strip punctuation, then drop trailing
+ * legal suffixes so "Google LLC", "Google, Inc." and "Google" all compare equal.
+ */
+function normalizeCompany(s: string): string {
+  const words = normalizeForMatch(s).split(" ")
+  while (words.length > 1 && COMPANY_SUFFIXES.has(words[words.length - 1])) {
+    words.pop()
+  }
+  return words.join(" ")
+}
+
+/**
+ * True when two normalized company names refer to the same employer.
+ * Beyond equality, accept whole-word prefix containment ("stripe" vs "stripe payments")
+ * but never partial-word matches ("meta" vs "metabase").
+ */
+function companiesMatch(a: string, b: string): boolean {
+  if (!a || !b) return false
+  if (a === b) return true
+  if (a.length >= 4 && b.length >= 4) {
+    return a.startsWith(`${b} `) || b.startsWith(`${a} `)
+  }
+  return false
 }
 
 /**
@@ -129,7 +200,7 @@ async function findMatchingApplication(
   role: string,
   status: ApplicationStatus
 ): Promise<Application | null> {
-  const normalizedCompany = normalizeForMatch(company)
+  const normalizedCompany = normalizeCompany(company)
   const normalizedRole = normalizeForMatch(role)
 
   const allAtAccount = await prisma.application.findMany({
@@ -137,8 +208,8 @@ async function findMatchingApplication(
     orderBy: { updatedAt: "desc" }
   })
 
-  const companyMatches = allAtAccount.filter(
-    (app) => normalizeForMatch(app.company) === normalizedCompany
+  const companyMatches = allAtAccount.filter((app) =>
+    companiesMatch(normalizeCompany(app.company), normalizedCompany)
   )
 
   if (companyMatches.length === 0) return null
@@ -280,11 +351,35 @@ export async function syncAccount(
 
       if (!isJobRelatedEmail(subject, from)) return
 
+      // Second gate: cheap AI classification on subject + sender catches job ads
+      // and newsletters that slip past the keyword pre-filter (e.g. "Interview
+      // tips" digests). Fail open on transient errors so a flaky API call doesn't
+      // drop a real status update — the full parse below can still veto it.
+      try {
+        if (!(await aiParser.isJobApplicationEmail(subject, from))) {
+          logger.debug({ accountId, messageId, subject }, "AI classifier rejected email as non-application")
+          return
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("OPENAI_API_KEY")) {
+          throw error
+        }
+        logger.warn({ error, accountId, messageId }, "AI classifier failed — falling back to full parse")
+      }
+
       const body = await bodyLoader()
       const parsed = await aiParser.parseJobEmail(subject, body, from)
 
       if (!parsed) {
         logger.warn({ accountId, messageId }, "Failed to parse job email")
+        return
+      }
+
+      if (!parsed.isJobApplication) {
+        logger.debug(
+          { accountId, messageId, subject },
+          "Parser flagged email as advertisement/newsletter — skipping"
+        )
         return
       }
 
@@ -344,10 +439,8 @@ export async function syncAccount(
             }
           })
           .then((apps) =>
-            apps.filter(
-              (app) =>
-                normalizeForMatch(app.company) === normalizeForMatch(parsed.company) &&
-                app.emailHistory.length > 0
+            apps.filter((app) =>
+              companiesMatch(normalizeCompany(app.company), normalizeCompany(parsed.company))
             )
           )
 
@@ -357,7 +450,13 @@ export async function syncAccount(
             allActiveAtCompany.map((app) => ({
               id: app.id,
               role: app.role,
-              recentSubjects: app.emailHistory.map((e) => e.subject)
+              // Manually created applications have no email history — fall back to
+              // the original email subject so they can still be matched.
+              recentSubjects: app.emailHistory.length > 0
+                ? app.emailHistory.map((e) => e.subject)
+                : app.emailSubject
+                  ? [app.emailSubject]
+                  : []
             }))
           )
           if (matchedId) {
@@ -526,7 +625,7 @@ export async function syncAccount(
         data: {
           status: SyncStatus.FAILED,
           completedAt: new Date(),
-          errorMessage: error instanceof Error ? error.message : String(error)
+          errorMessage: toFriendlyErrorMessage(error)
         }
       })
     }

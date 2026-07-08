@@ -5,6 +5,7 @@ import { z } from "zod"
 import { logger } from "../lib/logger"
 
 export type ParsedEmail = {
+  isJobApplication: boolean
   company: string
   role: string
   status: "APPLIED" | "INTERVIEWING" | "OFFER" | "REJECTED"
@@ -13,6 +14,7 @@ export type ParsedEmail = {
 }
 
 const parsedEmailSchema = z.object({
+  isJobApplication: z.boolean(),
   company: z.string(),
   role: z.string(),
   status: z.enum(["APPLIED", "INTERVIEWING", "OFFER", "REJECTED"]),
@@ -105,9 +107,16 @@ export async function isJobApplicationEmail(
       },
       {
         role: "user",
-        content: `Is this email related to a job application? Consider: application confirmations,
-interview invitations, rejection notices, offer letters, recruiter outreach,
-background check requests, or any status update about a job application. Exclude generic newsletters, networking emails, job news, account created notifications, or unrelated subjects.
+        content: `Is this email a status update about a SPECIFIC job application the recipient personally submitted (or direct 1-on-1 recruiter outreach)? Consider: application confirmations,
+interview invitations, rejection notices, offer letters, personal recruiter outreach,
+background check requests, or any status update about a job application.
+
+Answer NO for mass-marketing and advertising emails, even when they mention jobs or interviews:
+job recommendation digests ("jobs for you", "N new jobs match your profile"), job board
+newsletters and alerts, "apply now" promotions, interview-tips or career-advice content,
+course/bootcamp ads, hiring event or job fair invitations, networking or "people you may know"
+emails, job news, account created / password / login notifications, and anything sent to a
+mailing list rather than about the recipient's own application.
 
 From: ${from}
 Subject: ${subject}`
@@ -134,11 +143,15 @@ export async function parseJobEmail(
           role: "system",
           content:
             "Extract structured job application information from the email. " +
+            "First decide isJobApplication: true only when the email is about a SPECIFIC job application the recipient personally submitted (or direct 1-on-1 recruiter outreach about a specific role). " +
+            "Set isJobApplication to false for mass-marketing content: job recommendation digests, job board alerts/newsletters, 'apply now' promotions, interview-tips or career-advice content, hiring event invitations, job news, and account/login notifications. When false, still fill the other fields with best guesses. " +
             "Use these status rules: APPLIED for application received or confirmed; " +
             "INTERVIEWING for interview scheduled, invited, or requested; " +
             "OFFER for job offer extended; REJECTED for application declined, position filled, or moved forward with other candidates. " +
+            "For company, use the canonical employer name without legal suffixes (write 'Google', not 'Google LLC' or 'Google Careers Team'); it must be the organization offering the job — not a job board, ATS vendor, or scheduling tool. " +
             "For appointment/calendar booking confirmation emails (e.g. 'Appointment booked:', 'Interview scheduled'), the company is the organization offering the job — not the interviewer's name, not the scheduling tool, and not the recipient's email address. Extract the company from the email body if it is not clear from the subject. " +
-            "Lower confidence when the email is ambiguous, or this is not a job application email (including job news, account created notifications, generic newsletters)."
+            "For role, use the job title as written in the email; if no title is given, write 'Unknown'. " +
+            "Lower confidence when the email is ambiguous."
         },
         {
           role: "user",

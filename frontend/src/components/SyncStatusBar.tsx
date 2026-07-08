@@ -87,6 +87,11 @@ export function SyncStatusBar() {
                           ? "Syncing now…"
                           : `Last update ${formatRelativeTime(account.latestSync?.completedAt ?? null)}`}
                       </p>
+                      {status === "FAILED" && account.latestSync?.errorMessage ? (
+                        <p className="truncate text-xs text-red-500">
+                          {account.latestSync.errorMessage}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 </TooltipTrigger>
